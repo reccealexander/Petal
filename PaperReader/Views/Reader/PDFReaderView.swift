@@ -11,16 +11,38 @@ struct PDFReaderView: View {
     let paper: Paper
     let database: DatabaseManager
 
+    @StateObject private var model = PDFReaderModel()
+
     init(paper: Paper, database: DatabaseManager) {
         self.paper = paper
         self.database = database
     }
 
     var body: some View {
-        PDFKitWrapper(url: PDFImportService.fileURL(for: paper, in: database.papersDirectory))
+        PDFKitWrapper(
+            url: PDFImportService.fileURL(for: paper, in: database.papersDirectory),
+            paper: paper,
+            database: database,
+            model: model
+        )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .navigationTitle(paper.title ?? "Untitled")
             .onAppear { updateLastOpened() }
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    ForEach(HighlightColor.allCases) { color in
+                        Button {
+                            model.addHighlight(color)
+                        } label: {
+                            Circle().fill(Color(nsColor: color.nsColor))
+                                .frame(width: 14, height: 14)
+                                .overlay(Circle().stroke(Color.secondary.opacity(0.5), lineWidth: 0.5))
+                        }
+                        .help("Highlight \(color.displayName)")
+                        .disabled(!model.hasSelection)
+                    }
+                }
+            }
     }
 
     /// Stamps `last_opened_at` on the paper's row with the current time.
