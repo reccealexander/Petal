@@ -70,7 +70,7 @@ enum SplashWindowController {
         window = nil
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
+            context.duration = 0.15
             splash.animator().alphaValue = 0
         } completionHandler: {
             MainActor.assumeIsolated {

@@ -54,7 +54,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             center.addObserver(forName: NSWindow.didUpdateNotification, object: nil, queue: .main, using: hideIfNeeded),
         ]
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+        // DB init is synchronous and effectively instant, so gating the
+        // reveal on DB-readiness would make the splash flash near-invisibly.
+        // A flat ~500ms reads as a quick flash rather than a deliberate
+        // pause (spec's target is 400-600ms).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.revealMainWindow()
         }
     }
