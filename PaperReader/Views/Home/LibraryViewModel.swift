@@ -10,6 +10,19 @@ enum LibrarySelection: Hashable {
     case notebook(String)   // notebook id
 }
 
+/// A title-only item displayed by the global Spotlight-style library search.
+enum GlobalSearchResult: Identifiable, Hashable {
+    case paper(id: String, title: String)
+    case notebook(id: String, name: String)
+
+    var id: String {
+        switch self {
+        case .paper(let id, _): return "paper:\(id)"
+        case .notebook(let id, _): return "notebook:\(id)"
+        }
+    }
+}
+
 /// How the "All Papers" detail groups the current `papers` list (Session 7
 /// Part A, #4). Grouping is orthogonal to `selection`/tag filters — it just
 /// changes how whatever papers already passed those filters are presented.
@@ -296,6 +309,34 @@ final class LibraryViewModel: ObservableObject {
     /// Runs a full-text search for `searchText`, storing results in `searchResults`.
     func runSearch() {
         searchResults = (try? searchRepo.search(searchText)) ?? []
+    }
+
+    /// Combines Session 5's FTS-backed paper hits with notebook-name matches.
+    /// Paper ids are de-duplicated before their display titles are resolved.
+    func globalSearch(_ query: String, limit: Int = 20) -> [GlobalSearchResult] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, limit > 0 else { return [] }
+
+        let paperIDs = ((try? searchRepo.search(trimmed)) ?? [])
+            .filter { $0.entityType == .paper }
+            .reduce(into: [String]()) { ids, result in
+                if !ids.contains(result.id) { ids.append(result.id) }
+            }
+        let papersByID = Dictionary(
+            uniqueKeysWithValues: ((try? notebookRepo.allPapers()) ?? []).map { ($0.id, $0) }
+        )
+        var results = paperIDs.compactMap { id -> GlobalSearchResult? in
+            guard let paper = papersByID[id] else { return nil }
+            let title = paper.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return .paper(id: id, title: title.isEmpty ? "Untitled Paper" : title)
+        }
+
+        let remaining = max(0, limit - results.count)
+        if remaining > 0 {
+            let notebooks = (try? notebookRepo.notebooks(matchingName: trimmed, limit: remaining)) ?? []
+            results.append(contentsOf: notebooks.map { .notebook(id: $0.id, name: $0.name) })
+        }
+        return Array(results.prefix(limit))
     }
 
     /// The currently-shown paper with the given id, if any.

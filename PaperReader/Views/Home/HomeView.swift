@@ -115,6 +115,7 @@ private struct LibraryContentView: View {
     /// Ids pending a delete confirmation; may be a single card (right-clicked
     /// or ⌘⌫'d while unselected) or the full multi-selection.
     @State private var idsPendingDeletion: Set<String>?
+    @State private var isSearchOverlayVisible = false
 
     init(database: DatabaseManager) {
         _library = StateObject(wrappedValue: LibraryViewModel(database: database))
@@ -171,6 +172,24 @@ private struct LibraryContentView: View {
             // Selecting any notebook (or the built-in All Papers/Unfiled rows)
             // inside NotebookTreeView always means "show the papers detail".
             mode = .papers
+        }
+        .overlay {
+            if isSearchOverlayVisible {
+                GlobalSearchOverlay(
+                    library: library,
+                    onSelect: openGlobalSearchResult,
+                    onDismiss: { isSearchOverlayVisible = false }
+                )
+                .zIndex(100)
+            }
+        }
+        .background {
+            // App-local Shift+` shortcut: active only while Paper Reader's
+            // main window is key; this is intentionally not a global hotkey.
+            Button("Global Search") { isSearchOverlayVisible = true }
+                .keyboardShortcut("`", modifiers: .shift)
+                .opacity(0)
+                .frame(width: 0, height: 0)
         }
     }
 
@@ -374,6 +393,19 @@ private struct LibraryContentView: View {
             for id in orderedSelectedIDs.dropFirst(2) {
                 openWindow(value: id)
             }
+        }
+    }
+
+    private func openGlobalSearchResult(_ result: GlobalSearchResult) {
+        isSearchOverlayVisible = false
+        switch result {
+        case .paper(let id, _):
+            openWindow(value: id)
+        case .notebook(let id, _):
+            library.selection = .notebook(id)
+            mode = .papers
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.keyWindow?.makeKeyAndOrderFront(nil)
         }
     }
 

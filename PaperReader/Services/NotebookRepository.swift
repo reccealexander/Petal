@@ -25,6 +25,26 @@ public final class NotebookRepository {
         }
     }
 
+    /// Notebooks whose names contain `query`, case-insensitively. This is kept
+    /// deliberately lightweight because notebooks are not part of the FTS5
+    /// `search_index` used for paper content.
+    public func notebooks(matchingName query: String, limit: Int = 20) throws -> [Notebook] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        return try dbQueue.read { db in
+            try Notebook.fetchAll(
+                db,
+                sql: """
+                SELECT * FROM notebook
+                WHERE name LIKE '%' || ? || '%' COLLATE NOCASE
+                ORDER BY name COLLATE NOCASE
+                LIMIT ?
+                """,
+                arguments: [trimmed, max(0, limit)]
+            )
+        }
+    }
+
     /// A single notebook by id, or nil if it doesn't exist (Session 7 Part B:
     /// used to resolve a paper's containing notebook for the Claude panel's
     /// paper/notebook mode switcher).
