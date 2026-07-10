@@ -27,6 +27,7 @@ struct PDFReaderView: View {
     @StateObject private var model = PDFReaderModel()
     @StateObject private var thumbnailProvider: PageThumbnailProvider
     @StateObject private var tagPopoverModel: ReaderTagPopoverModel
+    @StateObject private var bookmarkStore: PageBookmarkStore
     @State private var isTagPopoverPresented = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
@@ -43,6 +44,10 @@ struct PDFReaderView: View {
             papersDirectory: database.papersDirectory
         ))
         _tagPopoverModel = StateObject(wrappedValue: ReaderTagPopoverModel(paper: paper, database: database))
+        _bookmarkStore = StateObject(wrappedValue: PageBookmarkStore(
+            paperId: paper.id,
+            repository: PageBookmarkRepository(database: database)
+        ))
     }
 
     /// Every other imported paper, for the "Compare side-by-side" menu.
@@ -56,7 +61,7 @@ struct PDFReaderView: View {
     var body: some View {
         HStack(spacing: 0) {
             if model.isThumbnailSidebarVisible && thumbnailProvider.pageCount > 0 {
-                PageThumbnailSidebar(provider: thumbnailProvider, model: model)
+                PageThumbnailSidebar(provider: thumbnailProvider, model: model, bookmarkStore: bookmarkStore)
                     .transition(.move(edge: .leading).combined(with: .opacity))
                 Divider()
             }
@@ -82,7 +87,10 @@ struct PDFReaderView: View {
             .animation(.easeInOut(duration: 0.2), value: model.isThumbnailSidebarVisible)
             .animation(.easeInOut(duration: 0.2), value: model.isClaudePanelVisible)
             .navigationTitle(paper.title ?? "Untitled")
-            .onAppear { updateLastOpened() }
+            .onAppear {
+                updateLastOpened()
+                bookmarkStore.load()
+            }
             // Session 9 Part A (best effort, not GUI-verified): standalone
             // reader windows register with CompareCoordinator so drag-to-snap
             // can detect two of them being dragged edge-to-edge. Panes

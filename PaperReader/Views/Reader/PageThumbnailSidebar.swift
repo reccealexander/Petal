@@ -7,6 +7,8 @@ import SwiftUI
 struct PageThumbnailSidebar: View {
     @ObservedObject var provider: PageThumbnailProvider
     @ObservedObject var model: PDFReaderModel
+    @ObservedObject var bookmarkStore: PageBookmarkStore
+    @StateObject private var accent = AccentColorProvider()
 
     static let width: CGFloat = 180
 
@@ -18,7 +20,12 @@ struct PageThumbnailSidebar: View {
                         PageThumbnailRow(
                             index: index,
                             isCurrent: index == model.currentPageIndex,
-                            image: provider.thumbnail(forPage: index)
+                            image: provider.thumbnail(forPage: index),
+                            isBookmarked: bookmarkStore.bookmarkedPages.contains(index),
+                            accentColor: accent.color,
+                            toggleBookmark: {
+                                bookmarkStore.toggle(page: index)
+                            }
                         )
                         .id(index)
                         .onTapGesture {
@@ -49,10 +56,13 @@ private struct PageThumbnailRow: View {
     let index: Int
     let isCurrent: Bool
     let image: NSImage?
+    let isBookmarked: Bool
+    let accentColor: Color
+    let toggleBookmark: () -> Void
 
     var body: some View {
         VStack(spacing: 4) {
-            ZStack {
+            ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color.gray.opacity(0.15))
                 if let image {
@@ -64,6 +74,20 @@ private struct PageThumbnailRow: View {
                     ProgressView()
                         .controlSize(.small)
                 }
+
+                Button(action: toggleBookmark) {
+                    Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(isBookmarked ? accentColor : Color.secondary.opacity(0.7))
+                        .frame(width: 26, height: 26)
+                        .background(
+                            Circle()
+                                .fill(Color(nsColor: .windowBackgroundColor).opacity(isBookmarked ? 0.9 : 0.72))
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(isBookmarked ? "Remove bookmark" : "Bookmark page")
+                .padding(6)
             }
             .frame(width: 140, height: 175)
             .overlay(

@@ -78,6 +78,7 @@ public final class DatabaseManager {
         V3AddNotebookSummary.register(in: &migrator)
         V4AddFreeSpacePosition.register(in: &migrator)
         V5AddPinnedAt.register(in: &migrator)
+        V6AddPageBookmark.register(in: &migrator)
         return migrator
     }
 
