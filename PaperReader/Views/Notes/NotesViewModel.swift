@@ -19,7 +19,6 @@ final class NotesViewModel: ObservableObject {
 
     private let noteRepo: NoteRepository
     private let highlightRepo: HighlightRepository
-    private let summaryService: NotebookSummaryService
     /// `lazy` so the `[weak self]` closure below can be wired up without
     /// referencing `self` before all other stored properties are initialized.
     private lazy var autosave: AutosaveController = AutosaveController(debounce: 1.5) { [weak self] in
@@ -35,7 +34,6 @@ final class NotesViewModel: ObservableObject {
         self.paperTitle = paperTitle
         self.noteRepo = NoteRepository(database: database)
         self.highlightRepo = HighlightRepository(database: database)
-        self.summaryService = NotebookSummaryService(database: database)
     }
 
     /// Load (or lazily create) the paper's primary note + its highlights.
@@ -45,11 +43,6 @@ final class NotesViewModel: ObservableObject {
         body = loaded?.body ?? ""
         linkedHighlightIds = NoteRepository.decodeLinkedIds(loaded?.linkedHighlightIds)
         highlights = (try? highlightRepo.highlights(forPaper: paperId)) ?? []
-
-        // Fire-and-forget: regenerates the containing notebook's AI summary
-        // only if net-new notes exist since it was last generated (Session
-        // 10, Feature 3) — safe/idempotent to call on every load.
-        summaryService.noteCreated(forPaperId: paperId)
     }
 
     /// Call on every body edit — schedules a debounced autosave.

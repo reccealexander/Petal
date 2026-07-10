@@ -75,7 +75,20 @@ public final class KeychainService: @unchecked Sendable {
     }
 
     /// Convenience check for whether an API key is currently stored.
+    /// Intentionally does not request `kSecReturnData`: existence checks should
+    /// not decrypt the secret or trigger Keychain ACL prompts. Actual Gemini
+    /// calls use `apiKey()` when they need the key data.
     public var hasAPIKey: Bool {
-        apiKey() != nil
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: Self.service,
+            kSecAttrAccount as String: Self.account,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: false
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        return status == errSecSuccess
     }
 }
