@@ -5,7 +5,7 @@ import AppKit
 /// live across all windows without requiring an app restart.
 ///
 /// The preference is a non-secret UI setting, so it is persisted to
-/// `UserDefaults` (unlike the Anthropic API key, which must stay Keychain-only).
+/// `UserDefaults` (unlike the Google AI Studio API key, which must stay Keychain-only).
 @MainActor
 final class AppearanceManager: ObservableObject {
     private static let defaultsKey = "appearance"

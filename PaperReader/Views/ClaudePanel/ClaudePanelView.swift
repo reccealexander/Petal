@@ -240,7 +240,7 @@ private struct ClaudePanelContentView: View {
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1.0)
-        .help(reason ?? (viewModel.isStreaming ? "Claude is currently responding." : action.title))
+        .help(reason ?? (viewModel.isStreaming ? "Gemini is currently responding." : action.title))
     }
 
     // MARK: - No API key state
@@ -251,9 +251,9 @@ private struct ClaudePanelContentView: View {
             Image(systemName: "key.slash")
                 .font(.system(size: 36))
                 .foregroundStyle(.secondary)
-            Text("No Anthropic API key set")
+            Text("No Google AI Studio API key set")
                 .font(.headline)
-            Text("Add your Anthropic API key in Settings to ask Claude about this \(viewModel.scopeKind.lowercased()).")
+            Text("Add your Google AI Studio API key in Settings to ask Gemini about this \(viewModel.scopeKind.lowercased()).")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

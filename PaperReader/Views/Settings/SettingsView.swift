@@ -6,8 +6,9 @@ import PaperReaderCore
 /// binds to that menu item automatically).
 ///
 /// Two sections:
-/// - **API Key** — the Anthropic API key, stored in the Keychain only — never
-///   in UserDefaults or plaintext on disk — via `KeychainService`.
+/// - **API Key** — the Google AI Studio (Gemini) API key, stored in the
+///   Keychain only — never in UserDefaults or plaintext on disk — via
+///   `KeychainService`.
 /// - **Appearance** — System/Light/Dark, persisted in UserDefaults (a
 ///   non-secret UI preference) and applied live via `AppearanceManager`.
 struct SettingsView: View {
@@ -36,7 +37,7 @@ private struct APIKeySettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Anthropic API Key")
+            Text("Google AI Studio API Key")
                 .font(.headline)
 
             if hasStoredKey {
@@ -45,12 +46,15 @@ private struct APIKeySettingsView: View {
                     .font(.callout)
             }
 
-            SecureField("sk-ant-…", text: $keyInput)
+            SecureField("AIza…", text: $keyInput)
                 .textFieldStyle(.roundedBorder)
 
-            Text("Stored securely in the macOS Keychain. Required to use the Claude panel in the reader.")
+            Text("Stored securely in the macOS Keychain. Required to use the AI panel in the reader.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Link("Get a key at aistudio.google.com/app/apikey", destination: URL(string: "https://aistudio.google.com/app/apikey")!)
+                .font(.caption)
 
             HStack {
                 Button("Save") {

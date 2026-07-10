@@ -1,7 +1,7 @@
 import Foundation
 import PDFKit
 
-/// Generates AI-recommended tags for a paper via Claude (Session 7 Part A,
+/// Generates AI-recommended tags for a paper via Gemini (Session 7 Part A,
 /// Feature 1). Assembles whatever context is already available in the app —
 /// title/authors, the first couple of PDF pages, existing highlight
 /// selections + their comments, and the paper's primary note — so the user
@@ -12,32 +12,32 @@ import PDFKit
 /// filtering out tags the paper already has.
 public final class TagSuggestionService: @unchecked Sendable {
     private let keychain: KeychainService
-    private let claude: ClaudeClient
+    private let claude: GeminiClient
     private let highlightRepository: HighlightRepository
     private let noteRepository: NoteRepository
     private let papersDirectory: URL
 
-    /// Cap on how much PDF/text context is sent to Claude, to keep the
+    /// Cap on how much PDF/text context is sent to Gemini, to keep the
     /// request small and cheap.
     private static let maxContextCharacters = 4000
 
     public init(database: DatabaseManager) {
         self.keychain = KeychainService()
-        self.claude = ClaudeClient(keychain: keychain)
+        self.claude = GeminiClient(keychain: keychain)
         self.highlightRepository = HighlightRepository(database: database)
         self.noteRepository = NoteRepository(database: database)
         self.papersDirectory = database.papersDirectory
     }
 
-    /// Whether an Anthropic API key is currently configured. The reader UI
+    /// Whether a Google AI Studio API key is currently configured. The reader UI
     /// checks this before offering to generate suggestions.
     public var hasAPIKey: Bool {
         keychain.hasAPIKey
     }
 
-    /// Asks Claude for 5-8 short topical tags for `paper`, derived entirely
+    /// Asks Gemini for 5-8 short topical tags for `paper`, derived entirely
     /// from context already stored in the app. Throws
-    /// `ClaudeClientError.missingAPIKey` (without making a network call) if
+    /// `GeminiClientError.missingAPIKey` (without making a network call) if
     /// no key is configured.
     ///
     /// Internally this is a thin wrapper around `buildContext(for:)` (a
@@ -53,18 +53,18 @@ public final class TagSuggestionService: @unchecked Sendable {
     /// Sendable.
     public func suggestTags(for paper: Paper) async throws -> [String] {
         guard hasAPIKey else {
-            throw ClaudeClientError.missingAPIKey
+            throw GeminiClientError.missingAPIKey
         }
         let context = buildContext(for: paper)
         return try await suggestTags(context: context)
     }
 
-    /// Asks Claude for 5-8 short topical tags given an already-assembled
+    /// Asks Gemini for 5-8 short topical tags given an already-assembled
     /// context string (see `buildContext(for:)`). Only ever crosses
     /// isolation domains with plain `String`/`Sendable` values.
     public func suggestTags(context: String) async throws -> [String] {
         guard hasAPIKey else {
-            throw ClaudeClientError.missingAPIKey
+            throw GeminiClientError.missingAPIKey
         }
 
         let system = "You suggest concise topical tags for scientific papers."
@@ -75,7 +75,7 @@ public final class TagSuggestionService: @unchecked Sendable {
             """
 
         var full = ""
-        let stream = claude.streamMessage(system: system, messages: [ClaudeMessage(role: "user", content: user)])
+        let stream = claude.streamMessage(system: system, messages: [GeminiMessage(role: "user", content: user)])
         for try await delta in stream {
             full += delta
         }
@@ -152,7 +152,7 @@ public final class TagSuggestionService: @unchecked Sendable {
 
     // MARK: - Parsing
 
-    /// Splits Claude's comma/newline-separated reply into trimmed, lowercased,
+    /// Splits Gemini's comma/newline-separated reply into trimmed, lowercased,
     /// deduplicated tag strings, capped to 8.
     static func parseTags(from text: String) -> [String] {
         let separators = CharacterSet(charactersIn: ",\n")

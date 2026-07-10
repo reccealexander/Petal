@@ -154,10 +154,10 @@ struct PDFReaderView: View {
                     Button {
                         model.isClaudePanelVisible.toggle()
                     } label: {
-                        Label("Ask Claude", systemImage: "sparkles")
+                        Label("Ask Gemini", systemImage: "sparkles")
                     }
                     .keyboardShortcut("a", modifiers: [.command, .shift])
-                    .help("Ask Claude about this paper")
+                    .help("Ask Gemini about this paper")
                 }
 
                 ToolbarItemGroup(placement: .primaryAction) {

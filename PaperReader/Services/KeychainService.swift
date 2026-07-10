@@ -1,10 +1,11 @@
 import Foundation
 import Security
 
-/// Stores and retrieves the user's Anthropic API key in the macOS Keychain.
-/// Never persists the key in UserDefaults or plaintext on disk (spec §5).
+/// Stores and retrieves the user's Google AI Studio API key in the macOS
+/// Keychain. Never persists the key in UserDefaults or plaintext on disk
+/// (spec §5).
 public final class KeychainService: @unchecked Sendable {
-    private static let service = "com.paperreader.anthropic"
+    private static let service = "com.paperreader.googleaistudio"
     private static let account = "api-key"
 
     public init() {}

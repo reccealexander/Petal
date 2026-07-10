@@ -89,10 +89,10 @@ private struct LibraryContentView: View {
                 Button {
                     isNotebookClaudePanelVisible.toggle()
                 } label: {
-                    Label("Ask Claude", systemImage: "sparkles")
+                    Label("Ask Gemini", systemImage: "sparkles")
                 }
                 .keyboardShortcut("a", modifiers: [.command, .shift])
-                .help("Ask Claude about the selected notebook")
+                .help("Ask Gemini about the selected notebook")
                 .disabled(selectedNotebook == nil)
             }
         }

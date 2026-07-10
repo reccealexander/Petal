@@ -25,7 +25,7 @@ final class ClaudePanelViewModel: ObservableObject {
     private let scope: ClaudeChatScope
     private let papersDirectory: URL
     private let keychain: KeychainService
-    private let claude: ClaudeClient
+    private let claude: GeminiClient
     private let contextBuilder: ContextBuilder
     private let chatRepo: ChatSessionRepository
 
@@ -34,7 +34,7 @@ final class ClaudePanelViewModel: ObservableObject {
         self.papersDirectory = database.papersDirectory
         let keychain = KeychainService()
         self.keychain = keychain
-        self.claude = ClaudeClient(keychain: keychain)
+        self.claude = GeminiClient(keychain: keychain)
         self.contextBuilder = ContextBuilder(database: database)
         self.chatRepo = ChatSessionRepository(database: database)
     }
@@ -147,7 +147,7 @@ final class ClaudePanelViewModel: ObservableObject {
         case .notebook(let notebook):
             system = contextBuilder.buildNotebookSystemPrompt(notebook: notebook)
         }
-        let claudeMessages = messages.map { ClaudeMessage(role: $0.role, content: $0.content) }
+        let claudeMessages = messages.map { GeminiMessage(role: $0.role, content: $0.content) }
 
         isStreaming = true
         streamingText = ""
