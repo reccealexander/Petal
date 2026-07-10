@@ -1,10 +1,10 @@
 import AppKit
 
 /// Minimal pre-main-window launch splash: a borderless, floating `NSWindow`
-/// showing only the app icon centered on a plain white background. No text,
-/// no progress indicator — shown briefly at startup while the (synchronous,
-/// effectively instant) database setup happens, then dismissed so the main
-/// `WindowGroup` window takes over.
+/// showing only the app icon itself, clipped to a rounded square, floating
+/// with no surrounding background. No text, no progress indicator — shown
+/// briefly at startup while the (synchronous, effectively instant) database
+/// setup happens, then dismissed so the main `WindowGroup` window takes over.
 ///
 /// This is implemented at the AppKit level (rather than as a SwiftUI
 /// `WindowGroup`/view) because it needs to appear *before* SwiftUI's own
@@ -25,7 +25,8 @@ enum SplashWindowController {
     static func show() {
         guard window == nil else { return }
 
-        let size = NSSize(width: 360, height: 360)
+        let side: CGFloat = 256
+        let size = NSSize(width: side, height: side)
         let splash = NSWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless],
@@ -33,27 +34,24 @@ enum SplashWindowController {
             defer: false
         )
         splash.isReleasedWhenClosed = false
-        splash.isOpaque = true
+        splash.isOpaque = false
         splash.hasShadow = true
-        splash.backgroundColor = .white
+        splash.backgroundColor = .clear
         splash.level = .floating
         splash.isMovableByWindowBackground = false
         splash.ignoresMouseEvents = true
 
         let containerView = NSView(frame: NSRect(origin: .zero, size: size))
         containerView.wantsLayer = true
-        containerView.layer?.backgroundColor = NSColor.white.cgColor
+        containerView.layer?.backgroundColor = NSColor.clear.cgColor
+        containerView.layer?.cornerRadius = side * 0.2237
+        containerView.layer?.masksToBounds = true
 
-        let iconSize = NSSize(width: 200, height: 200)
-        let imageView = NSImageView(frame: NSRect(
-            x: (size.width - iconSize.width) / 2,
-            y: (size.height - iconSize.height) / 2,
-            width: iconSize.width,
-            height: iconSize.height
-        ))
+        let imageView = NSImageView(frame: containerView.bounds)
         imageView.image = appIcon()
         imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin, .maxYMargin]
+        imageView.imageAlignment = .alignCenter
+        imageView.autoresizingMask = [.width, .height]
 
         containerView.addSubview(imageView)
         splash.contentView = containerView
