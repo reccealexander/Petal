@@ -120,7 +120,16 @@ private struct AppearanceSettingsView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            Text("Changes apply immediately across all windows.")
+            HStack(spacing: 12) {
+                Text("Transparency")
+                Slider(value: $appearance.windowTransparency, in: 1...100, step: 1)
+                Text("\(Int(appearance.windowTransparency))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, alignment: .trailing)
+            }
+
+            Text("Appearance changes apply across all windows. Transparency affects only the main library window.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

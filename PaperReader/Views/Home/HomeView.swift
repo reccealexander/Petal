@@ -9,6 +9,7 @@ import GRDB
 /// in its own reader window.
 struct HomeView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var appearance: AppearanceManager
 
     var body: some View {
         Group {
@@ -18,6 +19,7 @@ struct HomeView: View {
                 databaseErrorView
             }
         }
+        .background(MainWindowTransparencyBridge(alpha: appearance.chromeAlpha))
     }
 
     @ViewBuilder
@@ -35,6 +37,54 @@ struct HomeView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Keeps the main window's chrome separate from the fully opaque SwiftUI card
+/// content. This bridge is attached only to `HomeView`, so secondary windows
+/// and Settings are never modified.
+private struct MainWindowTransparencyBridge: NSViewRepresentable {
+    let alpha: CGFloat
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { [weak view] in
+            guard let window = view?.window else { return }
+            MainWindowTransparencyApplier.apply(alpha: alpha, to: window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let window = nsView.window else { return }
+        MainWindowTransparencyApplier.apply(alpha: alpha, to: window)
+    }
+}
+
+@MainActor
+private enum MainWindowTransparencyApplier {
+    private static let chromeIdentifier = NSUserInterfaceItemIdentifier("PaperReader.MainWindowChrome")
+
+    static func apply(alpha: CGFloat, to window: NSWindow) {
+        let alpha = min(max(alpha, 0.01), 1)
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.titlebarAppearsTransparent = alpha < 1
+
+        guard let contentView = window.contentView else { return }
+        let chrome: NSVisualEffectView
+        if let existing = contentView.subviews.first(where: { $0.identifier == chromeIdentifier }) as? NSVisualEffectView {
+            chrome = existing
+        } else {
+            chrome = NSVisualEffectView(frame: contentView.bounds)
+            chrome.identifier = chromeIdentifier
+            chrome.autoresizingMask = [.width, .height]
+            chrome.state = .active
+            chrome.blendingMode = .behindWindow
+            chrome.material = .windowBackground
+            contentView.addSubview(chrome, positioned: .below, relativeTo: contentView.subviews.first)
+        }
+        chrome.alphaValue = alpha
     }
 }
 

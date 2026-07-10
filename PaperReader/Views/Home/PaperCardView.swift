@@ -103,7 +103,7 @@ struct PaperCardView: View {
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(.background)
+                    .fill(Color(nsColor: .controlBackgroundColor))
                 if isSelected {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color.accentColor.opacity(0.12))

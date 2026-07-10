@@ -9,6 +9,7 @@ import AppKit
 @MainActor
 final class AppearanceManager: ObservableObject {
     private static let defaultsKey = "appearance"
+    private static let windowTransparencyDefaultsKey = "windowTransparency"
 
     enum Appearance: String, CaseIterable, Identifiable {
         case system
@@ -33,9 +34,28 @@ final class AppearanceManager: ObservableObject {
         }
     }
 
+    /// Opacity of the main library window's chrome, expressed as a percentage.
+    @Published var windowTransparency: Double {
+        didSet {
+            windowTransparency = min(max(windowTransparency, 1), 100)
+            UserDefaults.standard.set(windowTransparency, forKey: Self.windowTransparencyDefaultsKey)
+        }
+    }
+
+    /// Linear percentage-to-alpha mapping used by the main window chrome.
+    var chromeAlpha: CGFloat { CGFloat(windowTransparency / 100.0) }
+
     init() {
         let stored = UserDefaults.standard.string(forKey: Self.defaultsKey)
         self.appearance = stored.flatMap(Appearance.init(rawValue:)) ?? .system
+        if UserDefaults.standard.object(forKey: Self.windowTransparencyDefaultsKey) == nil {
+            self.windowTransparency = 100
+        } else {
+            self.windowTransparency = min(
+                max(UserDefaults.standard.double(forKey: Self.windowTransparencyDefaultsKey), 1),
+                100
+            )
+        }
         apply()
     }
 
