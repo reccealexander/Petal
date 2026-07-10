@@ -32,6 +32,7 @@ public final class NoteRepository {
         var note = Note(paperId: paperId, title: title, body: "", linkedHighlightIds: "[]")
         try dbQueue.write { db in
             try note.insert(db)
+            try SearchIndex.indexNote(note, in: db)
         }
         return note
     }
@@ -42,6 +43,7 @@ public final class NoteRepository {
         copy.updatedAt = Date()
         try dbQueue.write { db in
             try copy.update(db)
+            try SearchIndex.indexNote(copy, in: db)
         }
     }
 

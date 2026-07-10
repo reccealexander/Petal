@@ -1,0 +1,210 @@
+import Foundation
+import SwiftUI
+import PaperReaderCore
+
+/// Which papers the home grid shows.
+enum LibrarySelection: Hashable {
+    case all
+    case unfiled
+    case notebook(String)   // notebook id
+}
+
+/// Home-screen "brain": coordinates notebooks, tags, search, selection and
+/// the filtered paper list for `HomeView`, going through the Core
+/// repositories rather than touching the database directly (spec §1).
+@MainActor
+final class LibraryViewModel: ObservableObject {
+    /// The full notebook tree (flat list; callers derive structure via `childNotebooks(of:)`).
+    @Published private(set) var notebooks: [Notebook] = []
+    /// Every tag in the library, for the filter UI.
+    @Published private(set) var allTags: [Tag] = []
+    /// Papers matching the current `selection` and `activeTagIds`.
+    @Published private(set) var papers: [Paper] = []
+    /// Tags of each paper in `papers`, keyed by paper id (for card chips).
+    @Published private(set) var tagsByPaper: [String: [Tag]] = [:]
+    /// The current home-grid scope. Changing this reloads `papers`.
+    @Published var selection: LibrarySelection = .all { didSet { reloadPapers() } }
+    /// Tag ids currently filtering the grid (AND semantics — see `reloadPapers`).
+    @Published private(set) var activeTagIds: Set<String> = []
+    /// Raw text bound to the search field.
+    @Published var searchText: String = ""
+    /// Results of the last `runSearch()` call.
+    @Published private(set) var searchResults: [SearchResult] = []
+
+    /// Whether `searchText` has any non-whitespace content.
+    var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    let database: DatabaseManager
+    private let notebookRepo: NotebookRepository
+    private let tagRepo: TagRepository
+    private let searchRepo: SearchRepository
+
+    /// Creates the view model and its repositories from `database`, then loads
+    /// the initial notebook/tag/paper state.
+    init(database: DatabaseManager) {
+        self.database = database
+        self.notebookRepo = NotebookRepository(database: database)
+        self.tagRepo = TagRepository(database: database)
+        self.searchRepo = SearchRepository(database: database)
+        refresh()
+    }
+
+    // MARK: - Loading
+
+    /// Reloads notebooks, tags and the filtered paper list, in that order.
+    func refresh() {
+        reloadNotebooks()
+        reloadTags()
+        reloadPapers()
+    }
+
+    /// Reloads `notebooks` from the repository.
+    func reloadNotebooks() {
+        notebooks = (try? notebookRepo.allNotebooks()) ?? []
+    }
+
+    /// Reloads `allTags` from the repository.
+    func reloadTags() {
+        allTags = (try? tagRepo.allTags()) ?? []
+    }
+
+    /// Recomputes `papers` for the current `selection`, narrowed by
+    /// `activeTagIds` (a paper must carry every selected tag), and rebuilds
+    /// `tagsByPaper` for the resulting set.
+    func reloadPapers() {
+        let base: [Paper]
+        switch selection {
+        case .all:
+            base = (try? notebookRepo.allPapers()) ?? []
+        case .unfiled:
+            base = (try? notebookRepo.unfiledPapers()) ?? []
+        case .notebook(let id):
+            base = (try? notebookRepo.papersUnder(notebookId: id)) ?? []
+        }
+
+        var filtered = base
+        if !activeTagIds.isEmpty {
+            var matchingIds: Set<String>?
+            for tagId in activeTagIds {
+                let idsForTag = (try? tagRepo.paperIds(withTag: tagId)) ?? []
+                if let existing = matchingIds {
+                    matchingIds = existing.intersection(idsForTag)
+                } else {
+                    matchingIds = idsForTag
+                }
+            }
+            let allowed = matchingIds ?? []
+            filtered = base.filter { allowed.contains($0.id) }
+        }
+
+        papers = filtered
+        var tagsMap: [String: [Tag]] = [:]
+        for paper in filtered {
+            tagsMap[paper.id] = (try? tagRepo.tags(forPaper: paper.id)) ?? []
+        }
+        tagsByPaper = tagsMap
+    }
+
+    // MARK: - Notebooks
+
+    /// Notebooks whose `parentId` equals `parentId` (already sorted by `allNotebooks()`).
+    func childNotebooks(of parentId: String?) -> [Notebook] {
+        notebooks.filter { $0.parentId == parentId }
+    }
+
+    /// Creates a new notebook and reloads the notebook tree.
+    func createNotebook(name: String, parentId: String?) {
+        _ = try? notebookRepo.create(name: name, parentId: parentId)
+        reloadNotebooks()
+    }
+
+    /// Renames a notebook and reloads the notebook tree.
+    func renameNotebook(id: String, to newName: String) {
+        try? notebookRepo.rename(id: id, to: newName)
+        reloadNotebooks()
+    }
+
+    /// Deletes a notebook. If it was the active selection, falls back to `.all`
+    /// (which reloads papers via `didSet`); reloads notebooks and papers either way.
+    func deleteNotebook(id: String) {
+        try? notebookRepo.delete(id: id)
+        if selection == .notebook(id) {
+            selection = .all
+        }
+        reloadNotebooks()
+        reloadPapers()
+    }
+
+    /// True if `id` or any descendant notebook contains at least one paper
+    /// (used to decide whether to confirm before deleting).
+    func notebookContainsPapers(id: String) -> Bool {
+        (try? notebookRepo.containsPapers(notebookId: id)) ?? false
+    }
+
+    /// Re-parents a notebook, silently ignoring `NotebookError.wouldCreateCycle`.
+    func moveNotebook(id: String, toParent newParentId: String?) {
+        do {
+            try notebookRepo.move(id: id, toParent: newParentId)
+            reloadNotebooks()
+        } catch {
+            // NotebookError.wouldCreateCycle (or any other failure): ignore, leave tree unchanged.
+        }
+    }
+
+    /// Moves a paper into `notebookId` (nil for Unfiled) and reloads the paper list.
+    func movePaper(paperId: String, toNotebook notebookId: String?) {
+        try? notebookRepo.movePaper(paperId: paperId, toNotebook: notebookId)
+        reloadPapers()
+    }
+
+    // MARK: - Tags
+
+    /// Creates (or reuses) a tag by name and assigns it to a paper.
+    func addTag(name: String, toPaper paperId: String) {
+        _ = try? tagRepo.addTag(name: name, toPaper: paperId)
+        reloadTags()
+        reloadPapers()
+    }
+
+    /// Unassigns a tag from a paper (the tag itself is left intact).
+    func removeTag(tagId: String, fromPaper paperId: String) {
+        try? tagRepo.removeTag(tagId: tagId, fromPaper: paperId)
+        reloadTags()
+        reloadPapers()
+    }
+
+    /// Deletes a tag everywhere and drops it from the active filter.
+    func deleteTag(id: String) {
+        try? tagRepo.deleteTag(id: id)
+        activeTagIds.remove(id)
+        reloadTags()
+        reloadPapers()
+    }
+
+    /// Toggles whether `tagId` narrows the home grid, then reloads papers.
+    func toggleTagFilter(_ tagId: String) {
+        if activeTagIds.contains(tagId) {
+            activeTagIds.remove(tagId)
+        } else {
+            activeTagIds.insert(tagId)
+        }
+        reloadPapers()
+    }
+
+    /// Whether `tagId` is currently one of the active grid filters.
+    func isTagFilterActive(_ tagId: String) -> Bool {
+        activeTagIds.contains(tagId)
+    }
+
+    // MARK: - Search
+
+    /// Runs a full-text search for `searchText`, storing results in `searchResults`.
+    func runSearch() {
+        searchResults = (try? searchRepo.search(searchText)) ?? []
+    }
+
+    /// The currently-shown paper with the given id, if any.
+    func paper(withId id: String) -> Paper? {
+        papers.first { $0.id == id }
+    }
+}

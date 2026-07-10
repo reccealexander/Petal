@@ -35,6 +35,17 @@ public final class HighlightRepository {
     /// Delete a highlight by id. Its comments cascade away via the FK (spec §1).
     public func deleteHighlight(id: String) throws {
         try dbQueue.write { db in
+            // The highlight's comment(s) cascade away via the FK, but their
+            // search_index rows don't — remove those first while the comment
+            // ids are still resolvable.
+            let commentIds = try String.fetchAll(
+                db,
+                sql: "SELECT id FROM comment WHERE highlight_id = ?",
+                arguments: [id]
+            )
+            for commentId in commentIds {
+                try SearchIndex.remove(entityId: commentId, in: db)
+            }
             _ = try Highlight.deleteOne(db, key: id)
         }
     }
@@ -63,10 +74,12 @@ public final class HighlightRepository {
                 existing.body = body
                 existing.updatedAt = Date()
                 try existing.update(db)
+                try SearchIndex.indexComment(existing, in: db)
                 return existing
             } else {
                 let comment = Comment(highlightId: highlightId, paperId: paperId, body: body)
                 try comment.insert(db)
+                try SearchIndex.indexComment(comment, in: db)
                 return comment
             }
         }

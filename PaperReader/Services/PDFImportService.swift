@@ -96,6 +96,7 @@ public final class PDFImportService {
         )
         try dbQueue.write { db in
             try paper.insert(db)
+            try SearchIndex.indexPaper(paper, in: db)
         }
 
         return .imported(paper)
