@@ -47,6 +47,37 @@ public final class NoteRepository {
         }
     }
 
+    /// Every note in the library, most-recently-updated (falling back to
+    /// created) first — used by the "Notes" sidebar section (Session 7 Part A).
+    public func allNotes() throws -> [Note] {
+        try dbQueue.read { db in
+            try Note.fetchAll(
+                db,
+                sql: "SELECT * FROM note ORDER BY (updated_at IS NULL), updated_at DESC, created_at DESC"
+            )
+        }
+    }
+
+    /// A single note by id, or nil if it doesn't exist.
+    public func note(id: String) throws -> Note? {
+        try dbQueue.read { db in
+            try Note.fetchOne(db, key: id)
+        }
+    }
+
+    /// Creates a new, empty note — optionally linked to a paper and/or a
+    /// notebook, or fully unlinked (a "general" note) — and indexes it for
+    /// search, mirroring `loadOrCreatePrimaryNote`'s create path.
+    @discardableResult
+    public func createNote(paperId: String?, notebookId: String?, title: String?) throws -> Note {
+        let note = Note(paperId: paperId, notebookId: notebookId, title: title, body: "", linkedHighlightIds: "[]")
+        try dbQueue.write { db in
+            try note.insert(db)
+            try SearchIndex.indexNote(note, in: db)
+        }
+        return note
+    }
+
     /// JSON codec for the `note.linked_highlight_ids` column (array of highlight ids).
     public static func encodeLinkedIds(_ ids: [String]) -> String {
         guard let data = try? JSONEncoder().encode(ids),

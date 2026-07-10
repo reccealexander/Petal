@@ -83,7 +83,14 @@ struct PDFKitWrapper: NSViewRepresentable {
 
     func makeNSView(context: Context) -> PDFView {
         let pdfView = AnnotatablePDFView()
-        pdfView.autoScales = true
+        // Session 7 Part A: page-size opening. `autoScales` would stretch
+        // every page to fill the (often very wide) window; instead we manage
+        // the scale factor ourselves so a page opens at a comfortable
+        // reading width and PDFKit centers it horizontally. See
+        // `Coordinator.applyInitialZoomIfNeeded()` for the one-shot fit.
+        pdfView.autoScales = false
+        pdfView.minScaleFactor = 0.25
+        pdfView.maxScaleFactor = 5.0
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
         pdfView.document = PDFDocument(url: url)
@@ -107,13 +114,26 @@ struct PDFKitWrapper: NSViewRepresentable {
         model.performAddHighlight = { [weak coord] color in coord?.addHighlight(color) }
         model.performGoToPage = { [weak coord] index in coord?.goToPage(index) }
         coord.rehydrate()
+
+        // The view's bounds are typically still zero at this point (SwiftUI
+        // hasn't laid it out yet), so `scaleFactorForSizeToFit` would be
+        // unreliable if computed synchronously here. Defer to the next run
+        // loop turn, by which point AppKit has given the view its real size.
+        DispatchQueue.main.async { [weak coord] in
+            coord?.applyInitialZoomIfNeeded()
+        }
+
         return pdfView
     }
 
     func updateNSView(_ nsView: PDFView, context: Context) {
         if nsView.document?.documentURL != url {
             nsView.document = PDFDocument(url: url)
+            context.coordinator.didApplyInitialZoom = false
             context.coordinator.rehydrate()
+            DispatchQueue.main.async { [weak coordinator = context.coordinator] in
+                coordinator?.applyInitialZoomIfNeeded()
+            }
         }
     }
 
@@ -130,6 +150,11 @@ struct PDFKitWrapper: NSViewRepresentable {
         var tracked: [PDFAnnotation] = []
         var annotationToId: [PDFAnnotation: String] = [:]
         var popover: NSPopover?
+
+        /// Set once the one-shot initial page-fit zoom has been applied, so
+        /// we never override a zoom level the user has since chosen
+        /// themselves (Feature 2 — page-size opening).
+        var didApplyInitialZoom = false
 
         init(paperId: String, model: PDFReaderModel, repository: HighlightRepository) {
             self.paperId = paperId
@@ -162,6 +187,41 @@ struct PDFKitWrapper: NSViewRepresentable {
                   let page = document.page(at: index)
             else { return }
             pdfView.go(to: page)
+        }
+
+        /// One-shot "natural page size" fit (Feature 2, Session 7 Part A):
+        /// mimics Preview.app by capping the page to a comfortable reading
+        /// column (~850pt) rather than stretching it to the full window
+        /// width, while still shrinking to fit on narrower windows. PDFKit
+        /// automatically centers a page that's narrower than the view, so
+        /// this yields natural margins on wide windows for free. Runs at
+        /// most once per document load — after that, whatever scale the
+        /// user picks (by pinch/zoom or the zoom controls) is left alone.
+        func applyInitialZoomIfNeeded() {
+            guard !didApplyInitialZoom,
+                  let pdfView,
+                  let document = pdfView.document,
+                  document.pageCount > 0,
+                  let firstPage = document.page(at: 0)
+            else { return }
+
+            // Bounds may still be zero if this is racing SwiftUI's layout
+            // pass; try again on the next run loop turn rather than
+            // committing to a bogus fit-to-size scale.
+            guard pdfView.bounds.width > 0, pdfView.bounds.height > 0 else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.applyInitialZoomIfNeeded()
+                }
+                return
+            }
+
+            let pageWidthPoints = firstPage.bounds(for: .cropBox).width
+            guard pageWidthPoints > 0 else { return }
+
+            let targetWidth: CGFloat = 850
+            let targetScale = targetWidth / pageWidthPoints
+            pdfView.scaleFactor = min(pdfView.scaleFactorForSizeToFit, targetScale)
+            didApplyInitialZoom = true
         }
 
         /// Handles a request (from the notes window) to jump this paper's reader to a page.

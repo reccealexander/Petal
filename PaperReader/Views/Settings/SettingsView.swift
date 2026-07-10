@@ -1,12 +1,33 @@
 import SwiftUI
 import PaperReaderCore
 
-/// Settings screen for the Anthropic API key (spec §5). The key is stored in
-/// the Keychain only — never in UserDefaults or plaintext on disk — via
-/// `KeychainService`. Wired up as the app's `Settings` scene in
-/// `PaperReaderApp`, so macOS automatically binds it to the standard
-/// **⌘,** "Preferences…" menu item.
+/// Preferences screen (spec §5), opened via **⌘,** / App menu → "Preferences…"
+/// (wired up as the app's `Settings` scene in `PaperReaderApp`, which macOS
+/// binds to that menu item automatically).
+///
+/// Two sections:
+/// - **API Key** — the Anthropic API key, stored in the Keychain only — never
+///   in UserDefaults or plaintext on disk — via `KeychainService`.
+/// - **Appearance** — System/Light/Dark, persisted in UserDefaults (a
+///   non-secret UI preference) and applied live via `AppearanceManager`.
 struct SettingsView: View {
+    var body: some View {
+        TabView {
+            APIKeySettingsView()
+                .tabItem {
+                    Label("API Key", systemImage: "key.fill")
+                }
+
+            AppearanceSettingsView()
+                .tabItem {
+                    Label("Appearance", systemImage: "circle.righthalf.filled")
+                }
+        }
+        .frame(width: 460, height: 260)
+    }
+}
+
+private struct APIKeySettingsView: View {
     private let keychain = KeychainService()
 
     @State private var keyInput: String = ""
@@ -50,9 +71,10 @@ struct SettingsView: View {
                         .font(.caption)
                 }
             }
+
+            Spacer()
         }
         .padding(20)
-        .frame(width: 420)
         .onAppear {
             hasStoredKey = keychain.hasAPIKey
         }
@@ -75,5 +97,31 @@ struct SettingsView: View {
         keychain.deleteAPIKey()
         hasStoredKey = keychain.hasAPIKey
         keyInput = ""
+    }
+}
+
+private struct AppearanceSettingsView: View {
+    @EnvironmentObject private var appearance: AppearanceManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Appearance")
+                .font(.headline)
+
+            Picker("Appearance", selection: $appearance.appearance) {
+                ForEach(AppearanceManager.Appearance.allCases) { option in
+                    Text(option.label).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+
+            Text("Changes apply immediately across all windows.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+        }
+        .padding(20)
     }
 }

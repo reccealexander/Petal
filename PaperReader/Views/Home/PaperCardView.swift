@@ -14,6 +14,7 @@ struct PaperCardView: View {
 
     @State private var isEditingTags = false
     @State private var newTagText = ""
+    @Environment(\.openWindow) private var openWindow
 
     init(paper: Paper, papersDirectory: URL, library: LibraryViewModel) {
         self.paper = paper
@@ -34,8 +35,11 @@ struct PaperCardView: View {
                 thumbnailView
                     .frame(width: Self.cardWidth, height: Self.thumbnailHeight)
 
-                tagEditButton
-                    .padding(6)
+                HStack(spacing: 6) {
+                    openNoteButton
+                    tagEditButton
+                }
+                .padding(6)
             }
 
             Text(paper.title ?? "Untitled")
@@ -69,7 +73,32 @@ struct PaperCardView: View {
             Button("Edit Tags…") {
                 isEditingTags = true
             }
+            Button("Open Note") {
+                openNote()
+            }
         }
+    }
+
+    /// A small, non-tap-through control that opens (or lazily creates) the
+    /// paper's primary note in the existing detached notes window (spec
+    /// Session 7 Part A, #5). `openWindow(value:)` brings an already-open
+    /// window for the same `NotesWindowID` to the front instead of duplicating
+    /// it, so this single call both creates-and-opens and "reveals if open".
+    private var openNoteButton: some View {
+        Button {
+            openNote()
+        } label: {
+            Image(systemName: "note.text")
+                .font(.caption)
+                .padding(6)
+                .background(Circle().fill(.ultraThinMaterial))
+        }
+        .buttonStyle(.plain)
+        .help("Open Note")
+    }
+
+    private func openNote() {
+        openWindow(value: NotesWindowID(paperId: paper.id))
     }
 
     /// A small, non-tap-through control that opens the tag editor popover

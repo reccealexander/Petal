@@ -9,6 +9,23 @@ enum LibrarySelection: Hashable {
     case notebook(String)   // notebook id
 }
 
+/// How the "All Papers" detail groups the current `papers` list (Session 7
+/// Part A, #4). Grouping is orthogonal to `selection`/tag filters — it just
+/// changes how whatever papers already passed those filters are presented.
+enum PaperGrouping: String, CaseIterable {
+    case flat
+    case byNotebook
+    case byTag
+
+    var label: String {
+        switch self {
+        case .flat: return "Flat"
+        case .byNotebook: return "By Notebook"
+        case .byTag: return "By Tag"
+        }
+    }
+}
+
 /// Home-screen "brain": coordinates notebooks, tags, search, selection and
 /// the filtered paper list for `HomeView`, going through the Core
 /// repositories rather than touching the database directly (spec §1).
@@ -30,6 +47,8 @@ final class LibraryViewModel: ObservableObject {
     @Published var searchText: String = ""
     /// Results of the last `runSearch()` call.
     @Published private(set) var searchResults: [SearchResult] = []
+    /// How the papers detail groups the current `papers` (Session 7 Part A, #4).
+    @Published var grouping: PaperGrouping = .flat
 
     /// Whether `searchText` has any non-whitespace content.
     var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -206,5 +225,81 @@ final class LibraryViewModel: ObservableObject {
     /// The currently-shown paper with the given id, if any.
     func paper(withId id: String) -> Paper? {
         papers.first { $0.id == id }
+    }
+
+    // MARK: - Grouping (Session 7 Part A, #4)
+
+    /// Groups `papers` per `grouping`, preserving `papers`' order within each
+    /// group. `.flat` returns a single unnamed group with every paper.
+    func groupedPapers() -> [(title: String, papers: [Paper])] {
+        switch grouping {
+        case .flat:
+            return [(title: "", papers: papers)]
+        case .byNotebook:
+            return groupedByNotebook()
+        case .byTag:
+            return groupedByTag()
+        }
+    }
+
+    /// Groups by `notebookId`, using the notebook's name as the group title.
+    /// Papers with no notebook are collected under "No Notebook", sorted last.
+    private func groupedByNotebook() -> [(title: String, papers: [Paper])] {
+        var order: [String] = []          // notebook ids in first-seen order
+        var byNotebook: [String: [Paper]] = [:]
+        var unfiled: [Paper] = []
+
+        for paper in papers {
+            guard let notebookId = paper.notebookId else {
+                unfiled.append(paper)
+                continue
+            }
+            if byNotebook[notebookId] == nil {
+                order.append(notebookId)
+                byNotebook[notebookId] = []
+            }
+            byNotebook[notebookId]?.append(paper)
+        }
+
+        var groups = order.map { id in
+            (title: notebooks.first(where: { $0.id == id })?.name ?? "Notebook", papers: byNotebook[id] ?? [])
+        }
+        if !unfiled.isEmpty {
+            groups.append((title: "No Notebook", papers: unfiled))
+        }
+        return groups
+    }
+
+    /// Groups by tag; a paper with multiple tags appears under each tag's
+    /// group. Papers with no tags are collected under "Untagged", sorted last.
+    private func groupedByTag() -> [(title: String, papers: [Paper])] {
+        var order: [String] = []          // tag ids in first-seen order
+        var byTag: [String: [Paper]] = [:]
+        var tagNames: [String: String] = [:]
+        var untagged: [Paper] = []
+
+        for paper in papers {
+            let tags = tagsByPaper[paper.id] ?? []
+            if tags.isEmpty {
+                untagged.append(paper)
+                continue
+            }
+            for tag in tags {
+                if byTag[tag.id] == nil {
+                    order.append(tag.id)
+                    byTag[tag.id] = []
+                    tagNames[tag.id] = tag.name
+                }
+                byTag[tag.id]?.append(paper)
+            }
+        }
+
+        var groups = order.map { id in
+            (title: tagNames[id] ?? "Tag", papers: byTag[id] ?? [])
+        }
+        if !untagged.isEmpty {
+            groups.append((title: "Untagged", papers: untagged))
+        }
+        return groups
     }
 }

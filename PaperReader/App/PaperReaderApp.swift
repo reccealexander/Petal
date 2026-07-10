@@ -24,28 +24,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct PaperReaderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appState = AppState()
+    @StateObject private var appearance = AppearanceManager()
 
     var body: some Scene {
         WindowGroup("PaperReader") {
             HomeView()
                 .environmentObject(appState)
+                .environmentObject(appearance)
                 .frame(minWidth: 480, minHeight: 320)
         }
 
         WindowGroup(for: String.self) { $paperId in
             ReaderWindow(paperId: paperId)
                 .environmentObject(appState)
+                .environmentObject(appearance)
         }
 
         WindowGroup(for: NotesWindowID.self) { $notesID in
             NotesWindowRoot(notesID: notesID)
                 .environmentObject(appState)
+                .environmentObject(appearance)
         }
 
         // Standard Settings scene — macOS automatically binds this to the
-        // "PaperReader > Settings…" menu item and the ⌘, shortcut.
+        // "PaperReader > Preferences…" menu item and the ⌘, shortcut.
         Settings {
             SettingsView()
+                .environmentObject(appearance)
         }
     }
 }

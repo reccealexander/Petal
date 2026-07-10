@@ -18,6 +18,8 @@ struct PDFReaderView: View {
 
     @StateObject private var model = PDFReaderModel()
     @StateObject private var thumbnailProvider: PageThumbnailProvider
+    @StateObject private var tagPopoverModel: ReaderTagPopoverModel
+    @State private var isTagPopoverPresented = false
     @Environment(\.openWindow) private var openWindow
 
     init(paper: Paper, database: DatabaseManager) {
@@ -29,6 +31,7 @@ struct PDFReaderView: View {
             document: document,
             papersDirectory: database.papersDirectory
         ))
+        _tagPopoverModel = StateObject(wrappedValue: ReaderTagPopoverModel(paper: paper, database: database))
     }
 
     var body: some View {
@@ -103,6 +106,22 @@ struct PDFReaderView: View {
                         .disabled(!model.hasSelection)
                     }
                 }
+
+                // Session 7 Part A, Feature 1: tag button with AI-recommended
+                // tag suggestions, mirroring the home-view card's tag editor
+                // but adding a separate "Suggested" section.
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        tagPopoverModel.load()
+                        isTagPopoverPresented = true
+                    } label: {
+                        Label("Tags", systemImage: "tag")
+                    }
+                    .help("Tags")
+                    .popover(isPresented: $isTagPopoverPresented) {
+                        ReaderTagPopoverView(model: tagPopoverModel)
+                    }
+                }
             }
     }
 
@@ -113,6 +132,104 @@ struct PDFReaderView: View {
                 sql: "UPDATE paper SET last_opened_at = ? WHERE id = ?",
                 arguments: [Date(), paper.id]
             )
+        }
+    }
+}
+
+/// Content of the reader toolbar's tag popover (Session 7 Part A, Feature 1):
+/// the paper's existing assigned tags (removable), plus a clearly separated
+/// "Suggested" section of AI-recommended tags the user can click to accept.
+/// Mirrors the visual style of the home-view card's tag editor
+/// (`PaperCardView.tagEditorPopover`) — capsule chips laid out with
+/// `FlowLayout` — while keeping all DB/network logic in `ReaderTagPopoverModel`.
+private struct ReaderTagPopoverView: View {
+    @ObservedObject var model: ReaderTagPopoverModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Tags")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+
+                if model.assignedTags.isEmpty {
+                    Text("No tags yet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    FlowLayout(spacing: 4) {
+                        ForEach(model.assignedTags) { tag in
+                            HStack(spacing: 4) {
+                                Text(tag.name)
+                                    .font(.caption)
+                                Button {
+                                    model.remove(tag)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Suggested")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+
+                if !model.hasAPIKey {
+                    Text("Add an API key in Preferences to generate tag suggestions.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if model.isLoading {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Generating suggestions…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if model.suggestions.isEmpty {
+                    Text(model.errorMessage ?? "No suggestions right now.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    FlowLayout(spacing: 4) {
+                        ForEach(model.suggestions, id: \.self) { name in
+                            Button {
+                                model.accept(name)
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.caption2)
+                                    Text(name)
+                                        .font(.caption)
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 260)
+        .task {
+            await model.refreshSuggestions()
         }
     }
 }

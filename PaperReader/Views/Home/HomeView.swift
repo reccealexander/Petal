@@ -38,12 +38,20 @@ struct HomeView: View {
     }
 }
 
+/// Which top-level section the detail pane shows (Session 7 Part A, #6): the
+/// papers library (notebooks/tags/search/grid) or the new all-notes section.
+private enum MainMode: Hashable {
+    case papers
+    case notes
+}
+
 /// Hosts the `LibraryViewModel` and lays out the notebook sidebar, tag filters,
 /// paper grid and search results as a `NavigationSplitView`.
 private struct LibraryContentView: View {
     @EnvironmentObject private var appState: AppState
     @StateObject private var library: LibraryViewModel
     @Environment(\.openWindow) private var openWindow
+    @State private var mode: MainMode = .papers
 
     private let columns = [GridItem(.adaptive(minimum: 180), spacing: 20)]
 
@@ -71,11 +79,20 @@ private struct LibraryContentView: View {
             Text(appState.importMessage ?? "")
         }
         .onAppear { library.refresh() }
+        .onChange(of: library.selection) { _, _ in
+            // Selecting any notebook (or the built-in All Papers/Unfiled rows)
+            // inside NotebookTreeView always means "show the papers detail".
+            mode = .papers
+        }
     }
 
     @ViewBuilder
     private var sidebar: some View {
         VStack(spacing: 0) {
+            mainModeSwitcher
+
+            Divider()
+
             NotebookTreeView(viewModel: library)
 
             Divider()
@@ -85,8 +102,57 @@ private struct LibraryContentView: View {
         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
     }
 
+    /// Top-level sidebar rows switching the whole detail pane between the
+    /// papers library and the all-notes section (spec Session 7 Part A, #6).
+    @ViewBuilder
+    private var mainModeSwitcher: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            mainModeRow(title: "All Papers", icon: "doc.on.doc", mode: .papers)
+            mainModeRow(title: "Notes", icon: "note.text", mode: .notes)
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private func mainModeRow(title: String, icon: String, mode target: MainMode) -> some View {
+        let isSelected = mode == target
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+            Text(title)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.15) : .clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            mode = target
+            if target == .papers {
+                library.selection = .all
+            }
+        }
+    }
+
     @ViewBuilder
     private var detail: some View {
+        Group {
+            switch mode {
+            case .notes:
+                NotesLibraryView(database: library.database)
+            case .papers:
+                papersDetail
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var papersDetail: some View {
         Group {
             if library.isSearching {
                 SearchResultsView(library: library, onOpen: openResult)
@@ -102,6 +168,17 @@ private struct LibraryContentView: View {
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
+                if !library.isSearching {
+                    Picker("Group By", selection: $library.grouping) {
+                        ForEach(PaperGrouping.allCases, id: \.self) { grouping in
+                            Text(grouping.label).tag(grouping)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     showImportPanel()
                 } label: {
@@ -116,22 +193,47 @@ private struct LibraryContentView: View {
         if let papersDir = appState.database?.papersDirectory {
             if library.papers.isEmpty {
                 emptyStateView
-            } else {
+            } else if library.grouping == .flat {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 20) {
                         ForEach(library.papers) { paper in
-                            Button {
-                                openWindow(value: paper.id)
-                            } label: {
-                                PaperCardView(paper: paper, papersDirectory: papersDir, library: library)
-                            }
-                            .buttonStyle(.plain)
+                            paperCardButton(paper, papersDir: papersDir)
                         }
                     }
                     .padding(20)
                 }
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 20) {
+                        ForEach(library.groupedPapers(), id: \.title) { group in
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(group.title)
+                                    .font(.title3.bold())
+                                    .padding(.horizontal, 20)
+
+                                LazyVGrid(columns: columns, spacing: 20) {
+                                    ForEach(group.papers) { paper in
+                                        paperCardButton(paper, papersDir: papersDir)
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 20)
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private func paperCardButton(_ paper: Paper, papersDir: URL) -> some View {
+        Button {
+            openWindow(value: paper.id)
+        } label: {
+            PaperCardView(paper: paper, papersDirectory: papersDir, library: library)
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
