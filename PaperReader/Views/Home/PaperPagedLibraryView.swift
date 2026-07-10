@@ -12,8 +12,7 @@ struct PaperPagedLibraryView: View {
     private let pages = [
         (title: "Grid", icon: "square.grid.2x2"),
         (title: "List", icon: "list.bullet"),
-        (title: "Free Space", icon: "rectangle.3.group"),
-        (title: "Graph", icon: "point.3.connected.trianglepath.dotted")
+        (title: "Free Space", icon: "rectangle.3.group")
     ]
 
     var body: some View {
@@ -30,15 +29,16 @@ struct PaperPagedLibraryView: View {
                         page(index: 2)
                             .frame(width: proxy.size.width, height: proxy.size.height - 34)
                             .id(2)
-                        page(index: 3)
-                            .frame(width: proxy.size.width, height: proxy.size.height - 34)
-                            .id(3)
                     }
                     .scrollTargetLayout()
                 }
                 .scrollIndicators(.hidden)
                 .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $currentPage)
+                .onChange(of: currentPage) { _, page in
+                    guard let page, !pages.indices.contains(page) else { return }
+                    currentPage = min(max(page, pages.startIndex), pages.index(before: pages.endIndex))
+                }
 
                 dotIndicator
                     .frame(height: 34)
@@ -76,9 +76,10 @@ struct PaperPagedLibraryView: View {
                 onDeselect: selection.deselectAll
             )
         default:
-            PaperGraphView(
+            FreeSpaceCanvasView(
                 library: library,
                 selection: selection,
+                papersDirectory: papersDirectory,
                 onOpen: onOpen,
                 onRequestDelete: onRequestDelete,
                 onDeselect: selection.deselectAll

@@ -11,18 +11,39 @@ struct FreeSpaceCanvasView: View {
     let onDeselect: () -> Void
 
     @State private var livePositions: [String: CGPoint] = [:]
+    @State private var graphMode = false
 
-    private let canvasSize = CGSize(width: 2400, height: 1800)
+    // FreeSpacePaperCard's laid-out size is approximately 138 x 190 points.
+    // Since `.position` uses its center, these half dimensions keep the whole
+    // card inside the canvas.
+    private let cardHalfSize = CGSize(width: 69, height: 95)
 
     var body: some View {
-        ScrollView([.horizontal, .vertical]) {
+        GeometryReader { geo in
             ZStack(alignment: .topLeading) {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture(perform: onDeselect)
 
+                if graphMode {
+                    Canvas { context, _ in
+                        for edge in sharedTagEdges(in: geo.size) {
+                            var path = Path()
+                            path.move(to: edge.start)
+                            path.addLine(to: edge.end)
+                            context.stroke(
+                                path,
+                                with: .color(.secondary.opacity(0.28)),
+                                lineWidth: 1
+                            )
+                        }
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .allowsHitTesting(false)
+                }
+
                 ForEach(Array(library.papers.enumerated()), id: \.element.id) { index, paper in
-                    let position = position(for: paper, index: index)
+                    let position = position(for: paper, index: index, in: geo.size)
                     PaperInteractionShell(
                         paper: paper,
                         library: library,
@@ -38,42 +59,157 @@ struct FreeSpaceCanvasView: View {
                             isSelected: isSelected,
                             basePosition: position
                         ) { newPosition in
-                            livePositions[paper.id] = newPosition
-                            library.setPaperPosition(paperId: paper.id, x: newPosition.x, y: newPosition.y)
+                            guard hasUsableSize(geo.size) else { return }
+                            let constrained = clamped(newPosition, to: geo.size)
+                            livePositions[paper.id] = constrained
+                            library.setPaperPosition(
+                                paperId: paper.id,
+                                x: constrained.x,
+                                y: constrained.y
+                            )
                         }
                     }
                     .position(position)
                 }
+
+                graphToggle
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .topTrailing)
+                    .zIndex(1)
             }
-            .frame(width: canvasSize.width, height: canvasSize.height)
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
+            .onAppear { persistConstrainedPositions(in: geo.size) }
+            .onChange(of: geo.size) { _, size in
+                persistConstrainedPositions(in: size)
+            }
+            .onChange(of: library.papers) { _, _ in
+                persistConstrainedPositions(in: geo.size)
+            }
         }
-        .onAppear(perform: persistDefaultPositions)
-        .onChange(of: library.papers) { _, _ in persistDefaultPositions() }
     }
 
-    private func position(for paper: Paper, index: Int) -> CGPoint {
+    private var graphToggle: some View {
+        HStack(spacing: 2) {
+            modeButton(title: "Free", icon: "rectangle.3.group", enabled: !graphMode) {
+                graphMode = false
+            }
+            modeButton(
+                title: "Graph",
+                icon: "point.3.connected.trianglepath.dotted",
+                enabled: graphMode
+            ) {
+                graphMode = true
+            }
+        }
+        .padding(3)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.secondary.opacity(0.2))
+        )
+    }
+
+    private func modeButton(
+        title: String,
+        icon: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.caption)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .background(
+                    enabled ? Color.accentColor.opacity(0.18) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func position(for paper: Paper, index: Int, in size: CGSize) -> CGPoint {
         if let live = livePositions[paper.id] {
-            return live
+            return hasUsableSize(size) ? clamped(live, to: size) : live
         }
         if let x = paper.freeSpaceX, let y = paper.freeSpaceY {
-            return CGPoint(x: x, y: y)
+            let saved = CGPoint(x: x, y: y)
+            return hasUsableSize(size) ? clamped(saved, to: size) : saved
         }
-        return defaultPosition(for: index)
+        return defaultPosition(for: index, in: size)
     }
 
-    private func defaultPosition(for index: Int) -> CGPoint {
-        let columns = 8
-        let x = 110 + CGFloat(index % columns) * 210
-        let y = 130 + CGFloat(index / columns) * 220
-        return CGPoint(x: x, y: y)
+    private func defaultPosition(for index: Int, in size: CGSize) -> CGPoint {
+        guard hasUsableSize(size) else { return .zero }
+
+        let horizontalStep = cardHalfSize.width * 2 + 24
+        let verticalStep = cardHalfSize.height * 2 + 24
+        let availableWidth = max(0, size.width - cardHalfSize.width * 2)
+        let columns = max(1, Int(availableWidth / horizontalStep) + 1)
+        let point = CGPoint(
+            x: cardHalfSize.width + CGFloat(index % columns) * horizontalStep,
+            y: cardHalfSize.height + CGFloat(index / columns) * verticalStep
+        )
+        return clamped(point, to: size)
     }
 
-    private func persistDefaultPositions() {
-        for (index, paper) in library.papers.enumerated() where paper.freeSpaceX == nil || paper.freeSpaceY == nil {
-            let point = defaultPosition(for: index)
+    private func persistConstrainedPositions(in size: CGSize) {
+        guard hasUsableSize(size) else { return }
+
+        for (index, paper) in library.papers.enumerated() {
+            let saved = paper.freeSpaceX.flatMap { x in
+                paper.freeSpaceY.map { y in CGPoint(x: x, y: y) }
+            }
+            let point = saved.map { clamped($0, to: size) }
+                ?? defaultPosition(for: index, in: size)
+
+            if let saved, saved == point {
+                livePositions[paper.id] = point
+                continue
+            }
+
             livePositions[paper.id] = point
             library.setPaperPosition(paperId: paper.id, x: point.x, y: point.y)
         }
+    }
+
+    private func clamped(_ point: CGPoint, to size: CGSize) -> CGPoint {
+        CGPoint(
+            x: clampedCoordinate(point.x, extent: size.width, inset: cardHalfSize.width),
+            y: clampedCoordinate(point.y, extent: size.height, inset: cardHalfSize.height)
+        )
+    }
+
+    private func clampedCoordinate(_ value: CGFloat, extent: CGFloat, inset: CGFloat) -> CGFloat {
+        guard extent > 0 else { return 0 }
+        guard extent >= inset * 2 else { return extent / 2 }
+        return min(max(value, inset), extent - inset)
+    }
+
+    private func hasUsableSize(_ size: CGSize) -> Bool {
+        size.width > 1 && size.height > 1
+    }
+
+    private func sharedTagEdges(in size: CGSize) -> [(start: CGPoint, end: CGPoint)] {
+        var edges: [(CGPoint, CGPoint)] = []
+        let papers = library.papers
+
+        for leftIndex in papers.indices {
+            guard leftIndex + 1 < papers.count else { continue }
+            let leftTags = Set((library.tagsByPaper[papers[leftIndex].id] ?? []).map(\.id))
+            guard !leftTags.isEmpty else { continue }
+
+            for rightIndex in (leftIndex + 1)..<papers.count {
+                let rightTags = Set((library.tagsByPaper[papers[rightIndex].id] ?? []).map(\.id))
+                guard !leftTags.intersection(rightTags).isEmpty else { continue }
+                edges.append((
+                    position(for: papers[leftIndex], index: leftIndex, in: size),
+                    position(for: papers[rightIndex], index: rightIndex, in: size)
+                ))
+            }
+        }
+        return edges
     }
 }
 
