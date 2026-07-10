@@ -1,0 +1,36 @@
+import SwiftUI
+import AppKit
+import PaperReaderCore
+
+struct PaperInteractionShell<Content: View>: View {
+    let paper: Paper
+    @ObservedObject var library: LibraryViewModel
+    @ObservedObject var selection: PaperSelectionController
+    let orderedIDs: [String]
+    let onOpen: (String) -> Void
+    let onRequestDelete: (Set<String>) -> Void
+    @ViewBuilder var content: (Bool) -> Content
+
+    private var idsToDelete: Set<String> {
+        let isSelected = selection.isSelected(paper.id)
+        return (isSelected && selection.selectedIDs.count > 1) ? selection.selectedIDs : [paper.id]
+    }
+
+    var body: some View {
+        content(selection.isSelected(paper.id))
+            .contentShape(Rectangle())
+            .onTapGesture {
+                let shiftDown = NSEvent.modifierFlags.contains(.shift)
+                selection.handleTap(paper.id, shiftDown: shiftDown, orderedIDs: orderedIDs, open: onOpen)
+            }
+            .contextMenu {
+                Button(paper.pinnedAt == nil ? "Pin" : "Unpin") {
+                    library.setPaperPinned(paperId: paper.id, pinned: paper.pinnedAt == nil)
+                }
+                Divider()
+                Button(idsToDelete.count > 1 ? "Delete \(idsToDelete.count) Papers…" : "Delete Paper…", role: .destructive) {
+                    onRequestDelete(idsToDelete)
+                }
+            }
+    }
+}

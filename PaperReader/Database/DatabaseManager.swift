@@ -76,6 +76,8 @@ public final class DatabaseManager {
         V1InitialSchema.register(in: &migrator)
         V2AddFileHash.register(in: &migrator)
         V3AddNotebookSummary.register(in: &migrator)
+        V4AddFreeSpacePosition.register(in: &migrator)
+        V5AddPinnedAt.register(in: &migrator)
         return migrator
     }
 

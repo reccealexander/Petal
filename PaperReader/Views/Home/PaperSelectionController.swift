@@ -24,30 +24,22 @@ final class PaperSelectionController: ObservableObject {
 
     /// The single source of truth for what a click on a card does.
     ///
-    /// - Shift-click: RANGE-selects from `anchorID` (or from `id` itself if
-    ///   there is no anchor yet) to `id`, inclusive, within `orderedIDs`, and
-    ///   unions that range into `selectedIDs`. The anchor is left unchanged
-    ///   (matching Finder: repeated shift-clicks extend/shrink relative to
-    ///   the same anchor, not the last-clicked card).
+    /// - Shift-click: selects EXACTLY TWO cards — the anchor (the last card
+    ///   selected without shift) and the newly-clicked card — regardless of
+    ///   how many were selected before (Session 12 Task 5: this replaced the
+    ///   earlier Finder-style range-select). If nothing was selected yet, it
+    ///   just selects `id` and makes it the anchor.
     /// - Plain click: if `id` is already the sole selected card, `open(id)`
     ///   is invoked (second click on an already-solely-selected card opens
     ///   it). Otherwise the click selects only `id` (and moves the anchor to
     ///   it) without opening anything.
     func handleTap(_ id: String, shiftDown: Bool, orderedIDs: [String], open: (String) -> Void) {
         if shiftDown {
-            let effectiveAnchor = anchorID ?? id
-            if let anchorIndex = orderedIDs.firstIndex(of: effectiveAnchor),
-               let targetIndex = orderedIDs.firstIndex(of: id) {
-                let range = anchorIndex <= targetIndex ? anchorIndex...targetIndex : targetIndex...anchorIndex
-                let idsInRange = orderedIDs[range]
-                selectedIDs.formUnion(idsInRange)
+            if let anchor = anchorID, anchor != id {
+                selectedIDs = [anchor, id]   // exactly the two
             } else {
-                // Fallback: id or anchor not found in the visible order
-                // (shouldn't normally happen) — additive toggle of id.
-                selectedIDs.insert(id)
-            }
-            if anchorID == nil {
-                anchorID = effectiveAnchor
+                selectedIDs = [id]           // nothing was selected before → just this one
+                anchorID = id
             }
             return
         }

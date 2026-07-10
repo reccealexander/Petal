@@ -16,6 +16,13 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
     public var pageCount: Int?
     public var importedAt: Date
     public var lastOpenedAt: Date?
+    /// Position on the free-space canvas (Session 12); nil means the paper
+    /// hasn't been placed yet.
+    public var freeSpaceX: Double?
+    public var freeSpaceY: Double?
+    /// Non-nil when the paper is pinned (Session 12); the timestamp orders
+    /// pinned items.
+    public var pinnedAt: Date?
 
     public init(
         id: String = UUID().uuidString,
@@ -28,7 +35,10 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
         fileHash: String? = nil,
         pageCount: Int? = nil,
         importedAt: Date = Date(),
-        lastOpenedAt: Date? = nil
+        lastOpenedAt: Date? = nil,
+        freeSpaceX: Double? = nil,
+        freeSpaceY: Double? = nil,
+        pinnedAt: Date? = nil
     ) {
         self.id = id
         self.notebookId = notebookId
@@ -41,6 +51,9 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
         self.pageCount = pageCount
         self.importedAt = importedAt
         self.lastOpenedAt = lastOpenedAt
+        self.freeSpaceX = freeSpaceX
+        self.freeSpaceY = freeSpaceY
+        self.pinnedAt = pinnedAt
     }
 
     public static let databaseTableName = "paper"
@@ -57,5 +70,8 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
         case pageCount = "page_count"
         case importedAt = "imported_at"
         case lastOpenedAt = "last_opened_at"
+        case freeSpaceX = "free_space_x"
+        case freeSpaceY = "free_space_y"
+        case pinnedAt = "pinned_at"
     }
 }

@@ -132,6 +132,37 @@ public final class NotebookRepository {
         }
     }
 
+    /// Pins or unpins a paper (Session 12): sets `pinned_at` to now, or clears it.
+    public func setPaperPinned(paperId: String, pinned: Bool) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE paper SET pinned_at = ? WHERE id = ?",
+                arguments: [pinned ? Date() : nil, paperId]
+            )
+        }
+    }
+
+    /// Pins or unpins a notebook (Session 12): sets `pinned_at` to now, or clears it.
+    public func setNotebookPinned(id: String, pinned: Bool) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE notebook SET pinned_at = ? WHERE id = ?",
+                arguments: [pinned ? Date() : nil, id]
+            )
+        }
+    }
+
+    /// Sets a paper's free-space canvas position (Session 12). Pass nil for
+    /// both to mark it unplaced again.
+    public func setPaperPosition(paperId: String, x: Double?, y: Double?) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE paper SET free_space_x = ?, free_space_y = ? WHERE id = ?",
+                arguments: [x, y, paperId]
+            )
+        }
+    }
+
     /// True if this notebook or any descendant contains at least one paper (for the delete confirm).
     public func containsPapers(notebookId: String) throws -> Bool {
         try dbQueue.read { db in

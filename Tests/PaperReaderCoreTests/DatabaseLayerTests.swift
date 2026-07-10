@@ -20,7 +20,7 @@ final class DatabaseLayerTests: XCTestCase {
 
     func testMigrationsAreApplied() throws {
         let applied = try manager.appliedMigrations()
-        XCTAssertEqual(applied, ["v1_initial_schema", "v2_add_file_hash", "v3_add_notebook_summary"])
+        XCTAssertEqual(applied, ["v1_initial_schema", "v2_add_file_hash", "v3_add_notebook_summary", "v4_add_free_space_position", "v5_add_pinned_at"])
     }
 
     func testForeignKeysAreEnabled() throws {

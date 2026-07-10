@@ -29,7 +29,13 @@ public final class KeychainService: @unchecked Sendable {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: Self.account,
-            kSecValueData as String: data
+            kSecValueData as String: data,
+            // Stable, non-UI-gated accessibility class: the item is usable
+            // as soon as the device has been unlocked once after boot, and
+            // isn't tied to any biometric/passcode prompt policy. Doesn't
+            // affect the per-app "Always Allow" ACL prompt, but keeps
+            // accessibility semantics well-defined and predictable.
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
 
         let status = SecItemAdd(query as CFDictionary, nil)

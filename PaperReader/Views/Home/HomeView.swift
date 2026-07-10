@@ -42,6 +42,7 @@ struct HomeView: View {
 /// papers library (notebooks/tags/search/grid) or the new all-notes section.
 private enum MainMode: Hashable {
     case papers
+    case folders
     case notes
 }
 
@@ -64,8 +65,6 @@ private struct LibraryContentView: View {
     /// Ids pending a delete confirmation; may be a single card (right-clicked
     /// or ⌘⌫'d while unselected) or the full multi-selection.
     @State private var idsPendingDeletion: Set<String>?
-
-    private let columns = [GridItem(.adaptive(minimum: 180), spacing: 20)]
 
     init(database: DatabaseManager) {
         _library = StateObject(wrappedValue: LibraryViewModel(database: database))
@@ -147,6 +146,7 @@ private struct LibraryContentView: View {
     private var mainModeSwitcher: some View {
         VStack(alignment: .leading, spacing: 2) {
             mainModeRow(title: "All Papers", icon: "doc.on.doc", mode: .papers)
+            mainModeRow(title: "All Folders", icon: "folder", mode: .folders)
             mainModeRow(title: "Notes", icon: "note.text", mode: .notes)
         }
         .padding(.horizontal, 8)
@@ -183,6 +183,16 @@ private struct LibraryContentView: View {
             switch mode {
             case .notes:
                 NotesLibraryView(database: library.database)
+            case .folders:
+                if let papersDir = appState.database?.papersDirectory {
+                    AllFoldersView(
+                        library: library,
+                        papersDirectory: papersDir
+                    ) { notebook in
+                        library.selection = .notebook(notebook.id)
+                        mode = .papers
+                    }
+                }
             case .papers:
                 papersDetail
             }
@@ -201,7 +211,7 @@ private struct LibraryContentView: View {
                 if library.isSearching {
                     SearchResultsView(library: library, onOpen: openResult)
                 } else {
-                    paperGrid
+                    paperLibraryPages
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -271,51 +281,18 @@ private struct LibraryContentView: View {
     }
 
     @ViewBuilder
-    private var paperGrid: some View {
+    private var paperLibraryPages: some View {
         if let papersDir = appState.database?.papersDirectory {
             if library.papers.isEmpty {
                 emptyStateView
             } else {
-                ZStack {
-                    // Clicking blank grid space deselects (Session 11, Task
-                    // 1). Cards sit on top and consume their own taps via
-                    // `.contentShape`/`.onTapGesture`, so this only fires for
-                    // genuinely empty space.
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture { selection.deselectAll() }
-
-                    if library.grouping == .flat {
-                        ScrollView {
-                            LazyVGrid(columns: columns, spacing: 20) {
-                                ForEach(library.papers) { paper in
-                                    paperCardButton(paper, papersDir: papersDir)
-                                }
-                            }
-                            .padding(20)
-                        }
-                    } else {
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 20) {
-                                ForEach(library.groupedPapers(), id: \.title) { group in
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        Text(group.title)
-                                            .font(.title3.bold())
-                                            .padding(.horizontal, 20)
-
-                                        LazyVGrid(columns: columns, spacing: 20) {
-                                            ForEach(group.papers) { paper in
-                                                paperCardButton(paper, papersDir: papersDir)
-                                            }
-                                        }
-                                        .padding(.horizontal, 20)
-                                    }
-                                }
-                            }
-                            .padding(.vertical, 20)
-                        }
-                    }
-                }
+                PaperPagedLibraryView(
+                    library: library,
+                    selection: selection,
+                    papersDirectory: papersDir,
+                    onOpen: { id in openWindow(value: id) },
+                    onRequestDelete: { ids in idsPendingDeletion = ids }
+                )
             }
         }
     }
@@ -329,24 +306,6 @@ private struct LibraryContentView: View {
             return library.papers.map(\.id)
         }
         return library.groupedPapers().flatMap { $0.papers.map(\.id) }
-    }
-
-    @ViewBuilder
-    private func paperCardButton(_ paper: Paper, papersDir: URL) -> some View {
-        PaperCardView(
-            paper: paper,
-            papersDirectory: papersDir,
-            library: library,
-            isSelected: selection.isSelected(paper.id),
-            selectedIDs: selection.selectedIDs,
-            onRequestDelete: { ids in idsPendingDeletion = ids }
-        )
-        .onTapGesture {
-            let shiftDown = NSEvent.modifierFlags.contains(.shift)
-            selection.handleTap(paper.id, shiftDown: shiftDown, orderedIDs: visibleOrderedIDs) { id in
-                openWindow(value: id)
-            }
-        }
     }
 
     /// ⌘O (Session 11, Task 2): opens the current selection. A single

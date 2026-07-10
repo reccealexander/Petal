@@ -16,6 +16,9 @@ public struct Notebook: Codable, Identifiable, Hashable, FetchableRecord, Persis
     /// generated — compared against the current count to decide whether a
     /// regenerate is due (see `NotebookSummaryService`).
     public var aiSummaryNoteCount: Int
+    /// Non-nil when the notebook is pinned (Session 12); the timestamp orders
+    /// pinned items.
+    public var pinnedAt: Date?
 
     public init(
         id: String = UUID().uuidString,
@@ -24,7 +27,8 @@ public struct Notebook: Codable, Identifiable, Hashable, FetchableRecord, Persis
         createdAt: Date = Date(),
         sortOrder: Int = 0,
         aiSummary: String? = nil,
-        aiSummaryNoteCount: Int = 0
+        aiSummaryNoteCount: Int = 0,
+        pinnedAt: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -33,6 +37,7 @@ public struct Notebook: Codable, Identifiable, Hashable, FetchableRecord, Persis
         self.sortOrder = sortOrder
         self.aiSummary = aiSummary
         self.aiSummaryNoteCount = aiSummaryNoteCount
+        self.pinnedAt = pinnedAt
     }
 
     public static let databaseTableName = "notebook"
@@ -45,5 +50,6 @@ public struct Notebook: Codable, Identifiable, Hashable, FetchableRecord, Persis
         case sortOrder = "sort_order"
         case aiSummary = "ai_summary"
         case aiSummaryNoteCount = "ai_summary_note_count"
+        case pinnedAt = "pinned_at"
     }
 }

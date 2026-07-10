@@ -60,11 +60,21 @@ struct PaperCardView: View {
         library.tagsByPaper[paper.id] ?? []
     }
 
+    private var hasNotes: Bool {
+        library.papersWithNotes.contains(paper.id)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topTrailing) {
                 thumbnailView
                     .frame(width: Self.cardWidth, height: Self.thumbnailHeight)
+
+                if hasNotes {
+                    PaperNoteBadge()
+                        .padding(6)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                }
 
                 HStack(spacing: 6) {
                     openNoteButton
@@ -107,6 +117,9 @@ struct PaperCardView: View {
         .contentShape(Rectangle())
         .draggable("paper:\(paper.id)")
         .contextMenu {
+            Button(paper.pinnedAt == nil ? "Pin" : "Unpin") {
+                library.setPaperPinned(paperId: paper.id, pinned: paper.pinnedAt == nil)
+            }
             Button("Edit Tags…") {
                 isEditingTags = true
             }
@@ -125,6 +138,7 @@ struct PaperCardView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 _ = try? NoteRepository(database: library.database).deletePrimaryNote(forPaper: paper.id)
+                library.reloadPapers()
                 dismissWindow(value: NotesWindowID(paperId: paper.id))
             }
         } message: {

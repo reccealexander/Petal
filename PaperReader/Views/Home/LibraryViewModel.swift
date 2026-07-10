@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import PaperReaderCore
+import GRDB
 
 /// Which papers the home grid shows.
 enum LibrarySelection: Hashable {
@@ -39,6 +40,8 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var papers: [Paper] = []
     /// Tags of each paper in `papers`, keyed by paper id (for card chips).
     @Published private(set) var tagsByPaper: [String: [Tag]] = [:]
+    /// Paper ids that have at least one note, used for the home-screen note badge.
+    @Published private(set) var papersWithNotes: Set<String> = []
     /// The current home-grid scope. Changing this reloads `papers`.
     @Published var selection: LibrarySelection = .all { didSet { reloadPapers() } }
     /// Tag ids currently filtering the grid (AND semantics — see `reloadPapers`).
@@ -105,7 +108,7 @@ final class LibraryViewModel: ObservableObject {
 
     /// Reloads `notebooks` from the repository.
     func reloadNotebooks() {
-        notebooks = (try? notebookRepo.allNotebooks()) ?? []
+        notebooks = pinnedFirst((try? notebookRepo.allNotebooks()) ?? [])
     }
 
     /// Reloads `allTags` from the repository.
@@ -142,12 +145,36 @@ final class LibraryViewModel: ObservableObject {
             filtered = base.filter { allowed.contains($0.id) }
         }
 
-        papers = filtered
+        papers = pinnedFirst(filtered)
         var tagsMap: [String: [Tag]] = [:]
-        for paper in filtered {
+        for paper in papers {
             tagsMap[paper.id] = (try? tagRepo.tags(forPaper: paper.id)) ?? []
         }
         tagsByPaper = tagsMap
+        reloadPapersWithNotes()
+    }
+
+    /// Recomputes the ids of papers that have at least one note.
+    private func reloadPapersWithNotes() {
+        papersWithNotes = (try? database.dbQueue.read { db in
+            try String.fetchSet(db, sql: "SELECT DISTINCT paper_id FROM note WHERE paper_id IS NOT NULL")
+        }) ?? []
+    }
+
+    private func pinnedFirst(_ papers: [Paper]) -> [Paper] {
+        let pinned = papers
+            .filter { $0.pinnedAt != nil }
+            .sorted { ($0.pinnedAt ?? .distantPast) > ($1.pinnedAt ?? .distantPast) }
+        let unpinned = papers.filter { $0.pinnedAt == nil }
+        return pinned + unpinned
+    }
+
+    private func pinnedFirst(_ notebooks: [Notebook]) -> [Notebook] {
+        let pinned = notebooks
+            .filter { $0.pinnedAt != nil }
+            .sorted { ($0.pinnedAt ?? .distantPast) > ($1.pinnedAt ?? .distantPast) }
+        let unpinned = notebooks.filter { $0.pinnedAt == nil }
+        return pinned + unpinned
     }
 
     // MARK: - Notebooks
@@ -200,6 +227,29 @@ final class LibraryViewModel: ObservableObject {
     func movePaper(paperId: String, toNotebook notebookId: String?) {
         try? notebookRepo.movePaper(paperId: paperId, toNotebook: notebookId)
         reloadPapers()
+    }
+
+    /// Pins or unpins a paper, then reloads so pinned-first ordering and cards update.
+    func setPaperPinned(paperId: String, pinned: Bool) {
+        try? notebookRepo.setPaperPinned(paperId: paperId, pinned: pinned)
+        reloadPapers()
+    }
+
+    /// Persists a paper's free-space canvas coordinates, then reloads from the DB.
+    func setPaperPosition(paperId: String, x: Double?, y: Double?) {
+        try? notebookRepo.setPaperPosition(paperId: paperId, x: x, y: y)
+        reloadPapers()
+    }
+
+    /// Pins or unpins a notebook, then reloads so All Folders can sort pinned first.
+    func setNotebookPinned(id: String, pinned: Bool) {
+        try? notebookRepo.setNotebookPinned(id: id, pinned: pinned)
+        reloadNotebooks()
+    }
+
+    /// Papers inside a notebook subtree, sorted pinned-first like the visible paper lists.
+    func papersUnder(notebookId: String) -> [Paper] {
+        pinnedFirst((try? notebookRepo.papersUnder(notebookId: notebookId)) ?? [])
     }
 
     // MARK: - Tags

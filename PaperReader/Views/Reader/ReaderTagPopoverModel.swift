@@ -12,7 +12,11 @@ final class ReaderTagPopoverModel: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
 
-    let hasAPIKey: Bool
+    /// Computed (not cached at init) so the Keychain is only read when
+    /// something actually accesses this property — i.e. when the tag
+    /// popover is presented — rather than on every reader/model init
+    /// (which used to trigger a Keychain prompt on every paper open).
+    var hasAPIKey: Bool { suggestionService.hasAPIKey }
 
     private let paper: Paper
     private let tagRepository: TagRepository
@@ -22,7 +26,6 @@ final class ReaderTagPopoverModel: ObservableObject {
         self.paper = paper
         self.tagRepository = TagRepository(database: database)
         self.suggestionService = TagSuggestionService(database: database)
-        self.hasAPIKey = suggestionService.hasAPIKey
     }
 
     /// Loads the paper's currently-assigned tags from the DB.
