@@ -18,10 +18,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
 
-        // Brief icon-on-white splash while the main window spins up. Startup
-        // DB work is synchronous and effectively instant, so this is purely a
-        // fixed minimum display rather than a readiness gate.
-        SplashWindowController.show()
+        // Icon-on-white splash that stays up indefinitely (no timer) until
+        // the user clicks "Research Now", at which point the main window is
+        // revealed.
+        SplashWindowController.show(onResearchNow: { [weak self] in
+            self?.revealMainWindow()
+        })
 
         // SwiftUI creates/shows its WindowGroup window asynchronously around
         // launch time — it may not exist yet, or may appear a moment after
@@ -53,14 +55,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: hideIfNeeded),
             center.addObserver(forName: NSWindow.didUpdateNotification, object: nil, queue: .main, using: hideIfNeeded),
         ]
-
-        // DB init is synchronous and effectively instant, so gating the
-        // reveal on DB-readiness would make the splash flash near-invisibly.
-        // A flat ~500ms reads as a quick flash rather than a deliberate
-        // pause (spec's target is 400-600ms).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.revealMainWindow()
-        }
     }
 
     @MainActor

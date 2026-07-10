@@ -75,6 +75,7 @@ public final class DatabaseManager {
         var migrator = DatabaseMigrator()
         V1InitialSchema.register(in: &migrator)
         V2AddFileHash.register(in: &migrator)
+        V3AddNotebookSummary.register(in: &migrator)
         return migrator
     }
 

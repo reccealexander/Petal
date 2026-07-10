@@ -192,12 +192,19 @@ private struct LibraryContentView: View {
 
     @ViewBuilder
     private var papersDetail: some View {
-        Group {
-            if library.isSearching {
-                SearchResultsView(library: library, onOpen: openResult)
-            } else {
-                paperGrid
+        VStack(spacing: 0) {
+            if !library.isSearching, let notebook = selectedNotebook {
+                notebookSummaryHeader(notebook)
             }
+
+            Group {
+                if library.isSearching {
+                    SearchResultsView(library: library, onOpen: openResult)
+                } else {
+                    paperGrid
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(titleForSelection)
@@ -391,6 +398,40 @@ private struct LibraryContentView: View {
     private var selectedNotebook: Notebook? {
         guard case .notebook(let id) = library.selection else { return nil }
         return library.notebooks.first(where: { $0.id == id })
+    }
+
+    /// AI-generated summary header shown above the paper grid whenever a
+    /// notebook is selected (Session 10, Feature 3). Reads the cached
+    /// `Notebook.aiSummary` — never triggers generation itself; that happens
+    /// automatically (via `NotebookSummaryService`) whenever a paper-linked
+    /// note in this notebook is created or loaded. Refreshes live because
+    /// `LibraryViewModel` reloads `notebooks` on `.notebookSummaryDidUpdate`.
+    @ViewBuilder
+    private func notebookSummaryHeader(_ notebook: Notebook) -> some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Notebook Summary", systemImage: "sparkles")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+
+                let summary = notebook.aiSummary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if summary.isEmpty {
+                    Text("No summary yet — it's generated automatically when you add notes to papers in this notebook.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ScrollView {
+                        Text(summary)
+                            .font(.callout)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 160)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding([.horizontal, .top], 20)
     }
 
     private var titleForSelection: String {

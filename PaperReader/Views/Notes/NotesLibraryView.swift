@@ -37,6 +37,7 @@ final class NotesLibraryViewModel: ObservableObject {
     private let noteRepo: NoteRepository
     private let notebookRepo: NotebookRepository
     private let tagRepo: TagRepository
+    private let summaryService: NotebookSummaryService
 
     private var papersById: [String: Paper] = [:]
     private var notebooksById: [String: Notebook] = [:]
@@ -47,6 +48,7 @@ final class NotesLibraryViewModel: ObservableObject {
         self.noteRepo = NoteRepository(database: database)
         self.notebookRepo = NotebookRepository(database: database)
         self.tagRepo = TagRepository(database: database)
+        self.summaryService = NotebookSummaryService(database: database)
         refresh()
     }
 
@@ -225,6 +227,12 @@ final class NotesLibraryViewModel: ObservableObject {
         }
         refresh()
         selectedNoteId = note.id
+        if let paperId {
+            // Fire-and-forget: regenerates the containing notebook's AI
+            // summary if this net-new note pushes its count past the last
+            // generated one (Session 10, Feature 3).
+            summaryService.noteCreated(forPaperId: paperId)
+        }
         return note
     }
 
@@ -250,6 +258,7 @@ struct NotesLibraryView: View {
     @StateObject private var viewModel: NotesLibraryViewModel
     /// The id of the note pending a delete confirmation, if any (drives the alert).
     @State private var noteIdPendingDelete: String?
+    @Environment(\.dismissWindow) private var dismissWindow
 
     init(database: DatabaseManager) {
         _viewModel = StateObject(wrappedValue: NotesLibraryViewModel(database: database))
@@ -288,7 +297,14 @@ struct NotesLibraryView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 if let id = noteIdPendingDelete {
+                    // Look up the linked paper (if any) BEFORE deleting — once
+                    // the note row is gone, `viewModel.paperId(forNoteId:)`
+                    // can no longer resolve it.
+                    let linkedPaperId = viewModel.paperId(forNoteId: id)
                     viewModel.deleteNote(id: id)
+                    if let linkedPaperId {
+                        dismissWindow(value: NotesWindowID(paperId: linkedPaperId))
+                    }
                 }
                 noteIdPendingDelete = nil
             }

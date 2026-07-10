@@ -28,6 +28,7 @@ struct PaperCardView: View {
     @State private var newTagText = ""
     @State private var isConfirmingDeleteNote = false
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
     init(
         paper: Paper,
@@ -124,6 +125,7 @@ struct PaperCardView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 _ = try? NoteRepository(database: library.database).deletePrimaryNote(forPaper: paper.id)
+                dismissWindow(value: NotesWindowID(paperId: paper.id))
             }
         } message: {
             Text("This can't be undone.")

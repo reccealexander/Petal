@@ -149,6 +149,10 @@ chmod +x "$MACOS_DIR/PaperReader"
 
 cp "$ICNS_PATH" "$RESOURCES_DIR/AppIcon.icns"
 
+# Sharp full-resolution launch-splash icon (avoids the downscaled/cached
+# NSApp.applicationIconImage representation — see SplashWindow.swift).
+cp "$ROOT_DIR/EasyReader_icon.png" "$RESOURCES_DIR/EasyReader_icon.png"
+
 cat > "$CONTENTS_DIR/Info.plist" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

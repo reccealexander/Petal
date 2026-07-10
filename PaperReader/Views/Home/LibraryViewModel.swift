@@ -57,6 +57,10 @@ final class LibraryViewModel: ObservableObject {
     private let notebookRepo: NotebookRepository
     private let tagRepo: TagRepository
     private let searchRepo: SearchRepository
+    /// Token for the `.notebookSummaryDidUpdate` observer, so an
+    /// async-generated notebook summary (Session 10, Feature 3) refreshes
+    /// `notebooks` — and therefore `HomeView`'s summary header — once it lands.
+    private var summaryUpdateObserver: NSObjectProtocol?
 
     /// Creates the view model and its repositories from `database`, then loads
     /// the initial notebook/tag/paper state.
@@ -66,7 +70,29 @@ final class LibraryViewModel: ObservableObject {
         self.tagRepo = TagRepository(database: database)
         self.searchRepo = SearchRepository(database: database)
         refresh()
+
+        // Mirrors `CompareCoordinator`'s notification-observer pattern: the
+        // closure is `@Sendable` (implicitly, per `addObserver`'s `using:`
+        // parameter), so the actual main-actor work happens inside
+        // `MainActor.assumeIsolated`, which is sound here because `queue: .main`
+        // guarantees the closure only ever runs on the main thread.
+        summaryUpdateObserver = NotificationCenter.default.addObserver(
+            forName: .notebookSummaryDidUpdate,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reloadNotebooks()
+            }
+        }
     }
+
+    // No `deinit` removing `summaryUpdateObserver`: `LibraryViewModel` lives
+    // for the whole lifetime of the Home window (it's the `@StateObject` at
+    // the top of `LibraryContentView`), and a `@MainActor` class's `deinit`
+    // runs nonisolated, so it can't touch the (non-Sendable) observer token
+    // synchronously anyway. The token is retained only so a future caller
+    // that *does* need to unregister early has it available.
 
     // MARK: - Loading
 

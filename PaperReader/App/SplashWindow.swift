@@ -1,10 +1,10 @@
 import AppKit
 
-/// Minimal pre-main-window launch splash: a borderless, floating `NSWindow`
-/// showing only the app icon itself, clipped to a rounded square, floating
-/// with no surrounding background. No text, no progress indicator — shown
-/// briefly at startup while the (synchronous, effectively instant) database
-/// setup happens, then dismissed so the main `WindowGroup` window takes over.
+/// Pre-main-window launch splash: a borderless, floating `NSWindow` showing
+/// the app icon plus a single "Research Now" button. The splash stays up
+/// indefinitely — there is no auto-dismiss timer — until the user clicks the
+/// button, at which point the supplied `onResearchNow` closure runs (revealing
+/// the main window) and the caller is responsible for calling `dismiss()`.
 ///
 /// This is implemented at the AppKit level (rather than as a SwiftUI
 /// `WindowGroup`/view) because it needs to appear *before* SwiftUI's own
@@ -14,6 +14,10 @@ import AppKit
 enum SplashWindowController {
     private static var window: NSWindow?
 
+    /// Strong reference to the button's target/action shim so it isn't
+    /// deallocated out from under the (unretained) NSButton.target link.
+    private static var researchNowTarget: ResearchNowTarget?
+
     /// Whether the splash window is currently shown.
     static var isActive: Bool { window != nil }
 
@@ -22,42 +26,76 @@ enum SplashWindowController {
     static func isSplashWindow(_ candidate: NSWindow) -> Bool { candidate === window }
 
     /// Creates and shows the splash window immediately, above other windows.
-    static func show() {
+    /// The window has no timer — it stays up until the user clicks
+    /// "Research Now", at which point `onResearchNow` is invoked.
+    static func show(onResearchNow: @escaping () -> Void) {
         guard window == nil else { return }
 
-        let side: CGFloat = 256
-        let size = NSSize(width: side, height: side)
+        let windowSize = NSSize(width: 360, height: 420)
         let splash = NSWindow(
-            contentRect: NSRect(origin: .zero, size: size),
+            contentRect: NSRect(origin: .zero, size: windowSize),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
         splash.isReleasedWhenClosed = false
-        splash.isOpaque = false
+        splash.isOpaque = true
         splash.hasShadow = true
-        splash.backgroundColor = .clear
+        splash.backgroundColor = .windowBackgroundColor
         splash.level = .floating
         splash.isMovableByWindowBackground = false
-        splash.ignoresMouseEvents = true
+        // Must NOT ignore mouse events — the "Research Now" button needs to
+        // receive clicks.
 
-        let containerView = NSView(frame: NSRect(origin: .zero, size: size))
-        containerView.wantsLayer = true
-        containerView.layer?.backgroundColor = NSColor.clear.cgColor
-        containerView.layer?.cornerRadius = side * 0.2237
-        containerView.layer?.masksToBounds = true
+        let contentView = NSView(frame: NSRect(origin: .zero, size: windowSize))
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
 
-        let imageView = NSImageView(frame: containerView.bounds)
+        // Icon, clipped to a rounded square so it still reads as the app
+        // icon shape, centered near the top of the window.
+        let iconSide: CGFloat = 220
+        let iconOrigin = NSPoint(
+            x: (windowSize.width - iconSide) / 2,
+            y: windowSize.height - 48 - iconSide
+        )
+        let iconContainer = NSView(frame: NSRect(origin: iconOrigin, size: NSSize(width: iconSide, height: iconSide)))
+        iconContainer.wantsLayer = true
+        iconContainer.layer?.backgroundColor = NSColor.clear.cgColor
+        iconContainer.layer?.cornerRadius = iconSide * 0.2237
+        iconContainer.layer?.masksToBounds = true
+
+        let imageView = NSImageView(frame: NSRect(origin: .zero, size: NSSize(width: iconSide, height: iconSide)))
         imageView.image = appIcon()
         imageView.imageScaling = .scaleProportionallyUpOrDown
         imageView.imageAlignment = .alignCenter
         imageView.autoresizingMask = [.width, .height]
+        iconContainer.addSubview(imageView)
 
-        containerView.addSubview(imageView)
-        splash.contentView = containerView
+        // "Research Now" button, centered below the icon.
+        let buttonSize = NSSize(width: 180, height: 36)
+        let buttonOrigin = NSPoint(
+            x: (windowSize.width - buttonSize.width) / 2,
+            y: iconOrigin.y - 40 - buttonSize.height
+        )
+        let button = NSButton(frame: NSRect(origin: buttonOrigin, size: buttonSize))
+        button.title = "Research Now"
+        button.bezelStyle = .rounded
+        button.font = .systemFont(ofSize: 14, weight: .medium)
+
+        let target = ResearchNowTarget(action: onResearchNow)
+        researchNowTarget = target
+        button.target = target
+        button.action = #selector(ResearchNowTarget.invoke)
+        button.keyEquivalent = "\r"
+
+        contentView.addSubview(iconContainer)
+        contentView.addSubview(button)
+        splash.contentView = contentView
 
         splash.center()
         splash.orderFrontRegardless()
+        splash.makeKeyAndOrderFront(nil)
+        splash.makeFirstResponder(button)
 
         window = splash
     }
@@ -66,6 +104,7 @@ enum SplashWindowController {
     static func dismiss() {
         guard let splash = window else { return }
         window = nil
+        researchNowTarget = nil
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.15
@@ -77,9 +116,17 @@ enum SplashWindowController {
         }
     }
 
-    /// Resolves the app icon, with fallbacks so this never crashes even when
-    /// running unpackaged (no bundled AppIcon) during development.
+    /// Resolves the app icon at full resolution. `NSApp.applicationIconImage`
+    /// can hand back a downscaled/cached representation, so we prefer loading
+    /// the high-res source PNG straight out of the app bundle's Resources
+    /// (copied there by `scripts/package_app.sh`) and only fall back to the
+    /// system-provided icon (or an SF Symbol) when that's unavailable, e.g.
+    /// during an unpackaged `swift run` debug launch.
     private static func appIcon() -> NSImage? {
+        if let url = Bundle.main.url(forResource: "EasyReader_icon", withExtension: "png"),
+           let icon = NSImage(contentsOf: url) {
+            return icon
+        }
         if let icon = NSApp.applicationIconImage {
             return icon
         }
@@ -87,5 +134,19 @@ enum SplashWindowController {
             return icon
         }
         return NSImage(systemSymbolName: "doc.text", accessibilityDescription: "PaperReader")
+    }
+
+    /// Small `@objc` target/action shim so the "Research Now" button can
+    /// invoke a plain Swift closure.
+    private final class ResearchNowTarget: NSObject {
+        private let action: () -> Void
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+        }
+
+        @objc func invoke() {
+            action()
+        }
     }
 }
