@@ -36,6 +36,11 @@ struct PaperReaderApp: App {
             ReaderWindow(paperId: paperId)
                 .environmentObject(appState)
         }
+
+        WindowGroup(for: NotesWindowID.self) { $notesID in
+            NotesWindowRoot(notesID: notesID)
+                .environmentObject(appState)
+        }
     }
 }
 
@@ -50,6 +55,21 @@ private struct ReaderWindow: View {
             PDFReaderView(paper: paper, database: db)
         } else {
             Text("Paper not found").foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Resolves a `Paper` for a notes-window id and hosts `NotesView`.
+private struct NotesWindowRoot: View {
+    @EnvironmentObject private var appState: AppState
+    let notesID: NotesWindowID?
+
+    var body: some View {
+        if let notesID, let db = appState.database,
+           let paper = try? db.dbQueue.read({ try Paper.fetchOne($0, key: notesID.paperId) }) {
+            NotesView(paperId: paper.id, paperTitle: paper.title ?? "Untitled", database: db)
+        } else {
+            Text("Note unavailable").foregroundStyle(.secondary)
         }
     }
 }

@@ -12,6 +12,7 @@ struct PDFReaderView: View {
     let database: DatabaseManager
 
     @StateObject private var model = PDFReaderModel()
+    @Environment(\.openWindow) private var openWindow
 
     init(paper: Paper, database: DatabaseManager) {
         self.paper = paper
@@ -29,6 +30,15 @@ struct PDFReaderView: View {
             .navigationTitle(paper.title ?? "Untitled")
             .onAppear { updateLastOpened() }
             .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        openWindow(value: NotesWindowID(paperId: paper.id))
+                    } label: {
+                        Label("Notes", systemImage: "note.text")
+                    }
+                    .help("Open notes for this paper")
+                }
+
                 ToolbarItemGroup(placement: .primaryAction) {
                     ForEach(HighlightColor.allCases) { color in
                         Button {

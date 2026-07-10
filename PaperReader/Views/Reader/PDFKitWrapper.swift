@@ -98,6 +98,9 @@ struct PDFKitWrapper: NSViewRepresentable {
         NotificationCenter.default.addObserver(
             coord, selector: #selector(Coordinator.selectionChanged(_:)),
             name: .PDFViewSelectionChanged, object: pdfView)
+        NotificationCenter.default.addObserver(
+            coord, selector: #selector(Coordinator.jumpRequested(_:)),
+            name: .readerJumpToHighlight, object: nil)
         model.performAddHighlight = { [weak coord] color in coord?.addHighlight(color) }
         coord.rehydrate()
         return pdfView
@@ -137,6 +140,18 @@ struct PDFKitWrapper: NSViewRepresentable {
 
         @objc func selectionChanged(_ note: Notification) {
             model.hasSelection = (pdfView?.currentSelection?.string?.isEmpty == false)
+        }
+
+        /// Handles a request (from the notes window) to jump this paper's reader to a page.
+        @objc func jumpRequested(_ note: Notification) {
+            guard let info = note.userInfo,
+                  let pid = info["paperId"] as? String, pid == paperId,
+                  let pageIndex = info["pageIndex"] as? Int,
+                  let pdfView, let document = pdfView.document,
+                  let page = document.page(at: pageIndex)
+            else { return }
+            pdfView.go(to: page)
+            pdfView.window?.makeKeyAndOrderFront(nil)
         }
 
         /// Persists a `Highlight` row (one per page the selection touches) for
