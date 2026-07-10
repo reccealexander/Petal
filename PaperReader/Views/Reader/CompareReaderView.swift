@@ -51,7 +51,6 @@ struct CompareReaderView: View {
     let right: Paper
     let database: DatabaseManager
 
-    @EnvironmentObject private var compareCoordinator: CompareCoordinator
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
 

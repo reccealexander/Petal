@@ -31,7 +31,7 @@ struct PDFReaderView: View {
     @State private var isTagPopoverPresented = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var compareCoordinator: CompareCoordinator
+    @EnvironmentObject private var snapController: WindowSnapController
 
     init(paper: Paper, database: DatabaseManager, isStandaloneWindow: Bool = true) {
         self.paper = paper
@@ -100,14 +100,14 @@ struct PDFReaderView: View {
                 Group {
                     if isStandaloneWindow {
                         WindowAccessor { window in
-                            compareCoordinator.registerReaderWindow(paperId: paper.id, window: window)
+                            snapController.register(ref: .reader(paperId: paper.id), window: window)
                         }
                     }
                 }
             )
             .onDisappear {
                 if isStandaloneWindow {
-                    compareCoordinator.unregisterReaderWindow(paperId: paper.id)
+                    snapController.unregister(ref: .reader(paperId: paper.id))
                 }
             }
             .toolbar {
@@ -144,7 +144,7 @@ struct PDFReaderView: View {
                             ForEach(otherPapers) { other in
                                 Button(other.title ?? "Untitled") {
                                     openWindow(value: ComparePairID(leftPaperId: paper.id, rightPaperId: other.id))
-                                    compareCoordinator.closeStandaloneWindowIfOpen(paperId: other.id)
+                                    snapController.closeStandaloneWindowIfOpen(paperId: other.id)
                                     if isStandaloneWindow {
                                         dismiss()
                                     }

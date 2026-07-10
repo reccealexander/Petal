@@ -98,26 +98,32 @@ struct PaperReaderApp: App {
     // Session 9 Part A: drag-to-snap registry for standalone reader windows
     // (best effort, not GUI-verified — see CompareCoordinator.swift). Created
     // once here so every window scene shares the same instance.
-    @StateObject private var compareCoordinator = CompareCoordinator()
+    @StateObject private var snapController = WindowSnapController()
 
     var body: some Scene {
-        WindowGroup("PaperReader") {
+        Window("PaperReader", id: "main-library") {
             HomeView()
                 .environmentObject(appState)
                 .environmentObject(appearance)
-                .environmentObject(compareCoordinator)
+                .environmentObject(snapController)
                 .frame(minWidth: 480, minHeight: 320)
                 // Invisible listener that turns a detected drag-to-snap pair
                 // into an actual openWindow call (AppKit-side detection code
                 // has no SwiftUI environment to call openWindow from itself).
-                .background(CompareSnapBridge(coordinator: compareCoordinator))
+                .background {
+                    WindowAccessor { window in
+                        snapController.register(ref: .main, window: window)
+                    }
+                }
+                .background(WindowJoinBridge(controller: snapController))
+                .onDisappear { snapController.unregister(ref: .main) }
         }
 
         WindowGroup(for: String.self) { $paperId in
             ReaderWindow(paperId: paperId)
                 .environmentObject(appState)
                 .environmentObject(appearance)
-                .environmentObject(compareCoordinator)
+                .environmentObject(snapController)
         }
 
         // Session 9 Part A: side-by-side compare window for two papers,
@@ -128,13 +134,21 @@ struct PaperReaderApp: App {
             CompareReaderRoot(pair: pair)
                 .environmentObject(appState)
                 .environmentObject(appearance)
-                .environmentObject(compareCoordinator)
+                .environmentObject(snapController)
+        }
+
+        WindowGroup(for: JoinedWindowID.self) { $pair in
+            JoinedWindowRoot(pair: pair)
+                .environmentObject(appState)
+                .environmentObject(appearance)
+                .environmentObject(snapController)
         }
 
         WindowGroup(for: NotesWindowID.self) { $notesID in
             NotesWindowRoot(notesID: notesID)
                 .environmentObject(appState)
                 .environmentObject(appearance)
+                .environmentObject(snapController)
         }
 
         // Standard Settings scene — macOS automatically binds this to the
@@ -164,12 +178,21 @@ private struct ReaderWindow: View {
 /// Resolves a `Paper` for a notes-window id and hosts `NotesView`.
 private struct NotesWindowRoot: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var snapController: WindowSnapController
     let notesID: NotesWindowID?
 
     var body: some View {
         if let notesID, let db = appState.database,
            let paper = try? db.dbQueue.read({ try Paper.fetchOne($0, key: notesID.paperId) }) {
             NotesView(paperId: paper.id, paperTitle: paper.title ?? "Untitled", database: db)
+                .background {
+                    WindowAccessor { window in
+                        snapController.register(ref: .notes(paperId: paper.id), window: window)
+                    }
+                }
+                .onDisappear {
+                    snapController.unregister(ref: .notes(paperId: paper.id))
+                }
         } else {
             Text("Note unavailable").foregroundStyle(.secondary)
         }
