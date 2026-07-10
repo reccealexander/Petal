@@ -5,12 +5,14 @@ import PaperReaderCore
 /// (wired up as the app's `Settings` scene in `PaperReaderApp`, which macOS
 /// binds to that menu item automatically).
 ///
-/// Two sections:
+/// Three sections:
 /// - **API Key** — the Google AI Studio (Gemini) API key, stored in the
 ///   Keychain only — never in UserDefaults or plaintext on disk — via
 ///   `KeychainService`.
 /// - **Appearance** — System/Light/Dark, persisted in UserDefaults (a
 ///   non-secret UI preference) and applied live via `AppearanceManager`.
+/// - **Quick Tips** — a plain-language guide to the library's features and
+///   keyboard shortcuts.
 struct SettingsView: View {
     var body: some View {
         TabView {
@@ -23,8 +25,13 @@ struct SettingsView: View {
                 .tabItem {
                     Label("Appearance", systemImage: "circle.righthalf.filled")
                 }
+
+            QuickTipsView()
+                .tabItem {
+                    Label("Quick Tips", systemImage: "questionmark.circle")
+                }
         }
-        .frame(width: 460, height: 260)
+        .frame(width: 680, height: 560)
     }
 }
 
