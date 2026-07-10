@@ -58,6 +58,13 @@ final class PaperSelectionController: ObservableObject {
         anchorID = nil
     }
 
+    /// Replaces the current selection with one paper (for keyboard navigation)
+    /// and makes it the anchor for any subsequent shift-click.
+    func selectOnly(_ id: String) {
+        selectedIDs = [id]
+        anchorID = id
+    }
+
     /// Drops `ids` from the selection (e.g. after those papers are deleted).
     func remove(_ ids: Set<String>) {
         selectedIDs.subtract(ids)
