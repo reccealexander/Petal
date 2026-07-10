@@ -66,25 +66,25 @@ private enum MainWindowTransparencyApplier {
     private static let chromeIdentifier = NSUserInterfaceItemIdentifier("PaperReader.MainWindowChrome")
 
     static func apply(alpha: CGFloat, to window: NSWindow) {
-        let alpha = min(max(alpha, 0.01), 1)
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.titlebarAppearsTransparent = alpha < 1
+        let alpha = min(max(alpha, 0), 1)
 
-        guard let contentView = window.contentView else { return }
-        let chrome: NSVisualEffectView
-        if let existing = contentView.subviews.first(where: { $0.identifier == chromeIdentifier }) as? NSVisualEffectView {
-            chrome = existing
-        } else {
-            chrome = NSVisualEffectView(frame: contentView.bounds)
-            chrome.identifier = chromeIdentifier
-            chrome.autoresizingMask = [.width, .height]
-            chrome.state = .active
-            chrome.blendingMode = .behindWindow
-            chrome.material = .windowBackground
-            contentView.addSubview(chrome, positioned: .below, relativeTo: contentView.subviews.first)
+        if alpha >= 1 {
+            // Remove any chrome view left behind by the Session 14 implementation,
+            // then restore AppKit's normal fully opaque window appearance.
+            window.contentView?.subviews
+                .filter { $0.identifier == chromeIdentifier }
+                .forEach { $0.removeFromSuperview() }
+            window.isOpaque = true
+            window.backgroundColor = nil
+            window.titlebarAppearsTransparent = false
+            return
         }
-        chrome.alphaValue = alpha
+
+        // Fade at the window level. Never add a view to SwiftUI's managed
+        // contentView hierarchy, particularly during updateNSView.
+        window.isOpaque = false
+        window.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(alpha)
+        window.titlebarAppearsTransparent = true
     }
 }
 
