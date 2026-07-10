@@ -29,9 +29,12 @@ struct PDFReaderView: View {
     @StateObject private var tagPopoverModel: ReaderTagPopoverModel
     @StateObject private var bookmarkStore: PageBookmarkStore
     @State private var isTagPopoverPresented = false
+    @State private var readerWindow: NSWindow?
+    @State private var savedWindowAppearance: WindowAppearance?
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var snapController: WindowSnapController
+    @EnvironmentObject private var focus: FocusModeController
 
     init(paper: Paper, database: DatabaseManager, isStandaloneWindow: Bool = true) {
         self.paper = paper
@@ -60,7 +63,7 @@ struct PDFReaderView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if model.isThumbnailSidebarVisible && thumbnailProvider.pageCount > 0 {
+            if !focus.isActive && model.isThumbnailSidebarVisible && thumbnailProvider.pageCount > 0 {
                 PageThumbnailSidebar(provider: thumbnailProvider, model: model, bookmarkStore: bookmarkStore)
                     .transition(.move(edge: .leading).combined(with: .opacity))
                 Divider()
@@ -70,7 +73,8 @@ struct PDFReaderView: View {
                 url: PDFImportService.fileURL(for: paper, in: database.papersDirectory),
                 paper: paper,
                 database: database,
-                model: model
+                model: model,
+                isFocusModeActive: focus.isActive
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -78,7 +82,7 @@ struct PDFReaderView: View {
             // conditional pane in this HStack (see judgment-call note on
             // ClaudePanelView) rather than a literal NSSplitViewController
             // third pane — it slides in from the trailing edge when toggled.
-            if model.isClaudePanelVisible {
+            if !focus.isActive && model.isClaudePanelVisible {
                 Divider()
                 ClaudePanelView(paper: paper, database: database, readerSource: readerQuickActionSource)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -100,25 +104,52 @@ struct PDFReaderView: View {
                 Group {
                     if isStandaloneWindow {
                         WindowAccessor { window in
+                            readerWindow = window
                             snapController.register(ref: .reader(paperId: paper.id), window: window)
+                            updateWindowAppearance(for: window)
                         }
                     }
                 }
             )
             .onDisappear {
+                if focus.isActive, readerWindow != nil {
+                    focus.exit()
+                }
                 if isStandaloneWindow {
                     snapController.unregister(ref: .reader(paperId: paper.id))
                 }
             }
+            .onChange(of: focus.isActive) { _, _ in
+                if let readerWindow { updateWindowAppearance(for: readerWindow) }
+            }
+            .onExitCommand {
+                if focus.isActive { focus.exit() }
+            }
             .toolbar {
-                ToolbarItem(placement: .navigation) {
-                    Button {
-                        model.isThumbnailSidebarVisible.toggle()
-                    } label: {
-                        Label("Page Thumbnails", systemImage: "sidebar.left")
+                if isStandaloneWindow && !focus.isActive {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            if focus.isActive {
+                                focus.exit()
+                            } else {
+                                focus.enter(focusedWindow: readerWindow)
+                            }
+                        } label: {
+                            Label("Focus", systemImage: "arrow.up.left.and.arrow.down.right")
+                        }
+                        .help("Enter Focus mode")
                     }
-                    .help("Show or hide page thumbnails")
                 }
+
+                if !focus.isActive {
+                    ToolbarItem(placement: .navigation) {
+                        Button {
+                            model.isThumbnailSidebarVisible.toggle()
+                        } label: {
+                            Label("Page Thumbnails", systemImage: "sidebar.left")
+                        }
+                        .help("Show or hide page thumbnails")
+                    }
 
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -197,7 +228,28 @@ struct PDFReaderView: View {
                         ReaderTagPopoverView(model: tagPopoverModel)
                     }
                 }
+                }
             }
+    }
+
+    private func updateWindowAppearance(for window: NSWindow) {
+        if focus.isActive {
+            if savedWindowAppearance == nil {
+                savedWindowAppearance = WindowAppearance(window: window)
+            }
+            window.toolbar?.isVisible = false
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.hasShadow = false
+            window.standardWindowButton(.closeButton)?.isHidden = true
+            window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            window.standardWindowButton(.zoomButton)?.isHidden = true
+        } else if let savedWindowAppearance {
+            savedWindowAppearance.restore(to: window)
+            self.savedWindowAppearance = nil
+        }
     }
 
     /// The Claude panel's quick-action buttons (Session 7 Part C) read the
@@ -222,6 +274,43 @@ struct PDFReaderView: View {
                 arguments: [Date(), paper.id]
             )
         }
+    }
+}
+
+@MainActor
+private struct WindowAppearance {
+    let toolbarIsVisible: Bool?
+    let titlebarAppearsTransparent: Bool
+    let titleVisibility: NSWindow.TitleVisibility
+    let isOpaque: Bool
+    let backgroundColor: NSColor
+    let hasShadow: Bool
+    let closeIsHidden: Bool
+    let miniaturizeIsHidden: Bool
+    let zoomIsHidden: Bool
+
+    init(window: NSWindow) {
+        toolbarIsVisible = window.toolbar?.isVisible
+        titlebarAppearsTransparent = window.titlebarAppearsTransparent
+        titleVisibility = window.titleVisibility
+        isOpaque = window.isOpaque
+        backgroundColor = window.backgroundColor
+        hasShadow = window.hasShadow
+        closeIsHidden = window.standardWindowButton(.closeButton)?.isHidden ?? false
+        miniaturizeIsHidden = window.standardWindowButton(.miniaturizeButton)?.isHidden ?? false
+        zoomIsHidden = window.standardWindowButton(.zoomButton)?.isHidden ?? false
+    }
+
+    func restore(to window: NSWindow) {
+        if let toolbarIsVisible { window.toolbar?.isVisible = toolbarIsVisible }
+        window.titlebarAppearsTransparent = titlebarAppearsTransparent
+        window.titleVisibility = titleVisibility
+        window.isOpaque = isOpaque
+        window.backgroundColor = backgroundColor
+        window.hasShadow = hasShadow
+        window.standardWindowButton(.closeButton)?.isHidden = closeIsHidden
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = miniaturizeIsHidden
+        window.standardWindowButton(.zoomButton)?.isHidden = zoomIsHidden
     }
 }
 

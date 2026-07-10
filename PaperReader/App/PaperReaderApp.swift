@@ -99,6 +99,7 @@ struct PaperReaderApp: App {
     // (best effort, not GUI-verified — see CompareCoordinator.swift). Created
     // once here so every window scene shares the same instance.
     @StateObject private var snapController = WindowSnapController()
+    @StateObject private var focusController = FocusModeController()
 
     var body: some Scene {
         Window("PaperReader", id: "main-library") {
@@ -106,6 +107,7 @@ struct PaperReaderApp: App {
                 .environmentObject(appState)
                 .environmentObject(appearance)
                 .environmentObject(snapController)
+                .environmentObject(focusController)
                 .frame(minWidth: 480, minHeight: 320)
                 // Invisible listener that turns a detected drag-to-snap pair
                 // into an actual openWindow call (AppKit-side detection code
@@ -118,12 +120,23 @@ struct PaperReaderApp: App {
                 .background(WindowJoinBridge(controller: snapController))
                 .onDisappear { snapController.unregister(ref: .main) }
         }
+        .commands {
+            CommandMenu("View") {
+                FocusModeCommands(controller: focusController)
+            }
+        }
 
         WindowGroup(for: String.self) { $paperId in
             ReaderWindow(paperId: paperId)
                 .environmentObject(appState)
                 .environmentObject(appearance)
                 .environmentObject(snapController)
+                .environmentObject(focusController)
+        }
+        .commands {
+            CommandMenu("View") {
+                FocusModeCommands(controller: focusController)
+            }
         }
 
         // Session 9 Part A: side-by-side compare window for two papers,
@@ -135,6 +148,7 @@ struct PaperReaderApp: App {
                 .environmentObject(appState)
                 .environmentObject(appearance)
                 .environmentObject(snapController)
+                .environmentObject(focusController)
         }
 
         WindowGroup(for: JoinedWindowID.self) { $pair in
@@ -142,6 +156,7 @@ struct PaperReaderApp: App {
                 .environmentObject(appState)
                 .environmentObject(appearance)
                 .environmentObject(snapController)
+                .environmentObject(focusController)
         }
 
         WindowGroup(for: NotesWindowID.self) { $notesID in
@@ -149,6 +164,7 @@ struct PaperReaderApp: App {
                 .environmentObject(appState)
                 .environmentObject(appearance)
                 .environmentObject(snapController)
+                .environmentObject(focusController)
         }
 
         // Standard Settings scene — macOS automatically binds this to the
@@ -157,6 +173,18 @@ struct PaperReaderApp: App {
             SettingsView()
                 .environmentObject(appearance)
         }
+    }
+}
+
+private struct FocusModeCommands: View {
+    @ObservedObject var controller: FocusModeController
+
+    var body: some View {
+        Button("Exit Focus Mode") {
+            controller.exit()
+        }
+        .keyboardShortcut(.escape, modifiers: [])
+        .disabled(!controller.isActive)
     }
 }
 

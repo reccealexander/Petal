@@ -76,6 +76,7 @@ struct PDFKitWrapper: NSViewRepresentable {
     let paper: Paper
     let database: DatabaseManager
     @ObservedObject var model: PDFReaderModel
+    var isFocusModeActive = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(paperId: paper.id, model: model, repository: HighlightRepository(database: database))
@@ -95,6 +96,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
         pdfView.document = PDFDocument(url: url)
+        pdfView.backgroundColor = isFocusModeActive ? .clear : .controlBackgroundColor
 
         let coord = context.coordinator
         coord.pdfView = pdfView
@@ -132,6 +134,7 @@ struct PDFKitWrapper: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PDFView, context: Context) {
+        nsView.backgroundColor = isFocusModeActive ? .clear : .controlBackgroundColor
         if nsView.document?.documentURL != url {
             nsView.document = PDFDocument(url: url)
             context.coordinator.didApplyInitialZoom = false
