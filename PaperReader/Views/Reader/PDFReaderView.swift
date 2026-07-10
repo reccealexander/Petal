@@ -56,7 +56,7 @@ struct PDFReaderView: View {
             // third pane — it slides in from the trailing edge when toggled.
             if model.isClaudePanelVisible {
                 Divider()
-                ClaudePanelView(paper: paper, database: database)
+                ClaudePanelView(paper: paper, database: database, readerSource: readerQuickActionSource)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
@@ -123,6 +123,20 @@ struct PDFReaderView: View {
                     }
                 }
             }
+    }
+
+    /// The Claude panel's quick-action buttons (Session 7 Part C) read the
+    /// live PDF selection/page/highlight through `model`'s provider closures
+    /// (set by `PDFKitWrapper.Coordinator`) rather than touching PDFKit
+    /// directly — this just adapts those into the small closure bundle
+    /// `ClaudePanelView` expects.
+    private var readerQuickActionSource: ReaderQuickActionSource {
+        ReaderQuickActionSource(
+            selection: { model.selectionText() },
+            surrounding: { model.surroundingText() },
+            pageText: { model.pageText() },
+            openHighlight: { model.openHighlight() }
+        )
     }
 
     /// Stamps `last_opened_at` on the paper's row with the current time.

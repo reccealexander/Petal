@@ -50,6 +50,15 @@ public final class HighlightRepository {
         }
     }
 
+    /// A single highlight by id, if it still exists. Used by the reader's
+    /// Claude quick actions to resolve the "last opened highlight" back to
+    /// its `selectedText` (Session 7 Part C).
+    public func highlight(id: String) throws -> Highlight? {
+        try dbQueue.read { db in
+            try Highlight.fetchOne(db, key: id)
+        }
+    }
+
     /// The single comment attached to a highlight, if any.
     public func comment(forHighlight highlightId: String) throws -> Comment? {
         try dbQueue.read { db in

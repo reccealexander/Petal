@@ -1,6 +1,19 @@
 import SwiftUI
 import PaperReaderCore
 
+/// The live PDF-reader context the Claude panel's quick actions draw on
+/// (Session 7 Part C). Built by `PDFReaderView` from `PDFReaderModel`'s
+/// provider closures and threaded into `ClaudePanelView` as an optional
+/// parameter — `nil` wherever there's no live reader (e.g. the Home window's
+/// notebook-scope panel), so those call sites just show the two quick
+/// actions that don't need reader context.
+struct ReaderQuickActionSource {
+    var selection: () -> String?
+    var surrounding: () -> String?
+    var pageText: () -> String?
+    var openHighlight: () -> (text: String, comment: String?)?
+}
+
 /// A Claude Q&A side panel that can operate in either paper scope or
 /// notebook scope (spec §5, Session 7 Part B extends this to notebooks).
 ///
@@ -27,39 +40,47 @@ struct ClaudePanelView: View {
     private let database: DatabaseManager
     private let paper: Paper?
     private let containingNotebook: Notebook?
+    /// Live PDF-selection/highlight context for the reader's quick actions;
+    /// `nil` when there's no reader (e.g. opened from the Home window).
+    private let readerSource: ReaderQuickActionSource?
 
     /// Paper-scope entry point (used by `PDFReaderView`). Looks up the
     /// paper's containing notebook (if any) so the header can offer the
     /// paper/notebook switcher; unfiled papers (`notebookId == nil`) just show
-    /// the paper indicator with no switcher.
-    init(paper: Paper, database: DatabaseManager) {
+    /// the paper indicator with no switcher. `readerSource` (optional) wires
+    /// the paper/notebook quick actions to the live PDF selection/highlight.
+    init(paper: Paper, database: DatabaseManager, readerSource: ReaderQuickActionSource? = nil) {
         self.database = database
         self.paper = paper
         let notebook: Notebook? = paper.notebookId.flatMap { notebookId in
             try? NotebookRepository(database: database).notebook(id: notebookId)
         }
         self.containingNotebook = notebook
+        self.readerSource = readerSource
         _mode = State(initialValue: .paper)
         _viewModel = State(initialValue: ClaudePanelViewModel(paper: paper, database: database))
     }
 
     /// Notebook-scope entry point (used by the Home window). No current
-    /// paper, so no switcher is shown — just the notebook indicator.
+    /// paper, so no switcher is shown — just the notebook indicator. No live
+    /// reader either, so quick actions that need PDF context are unavailable
+    /// (the notebook-only actions still work).
     init(notebook: Notebook, database: DatabaseManager) {
         self.database = database
         self.paper = nil
         self.containingNotebook = notebook
+        self.readerSource = nil
         _mode = State(initialValue: .notebook)
         _viewModel = State(initialValue: ClaudePanelViewModel(notebook: notebook, database: database))
     }
 
     /// Generic entry point taking an explicit `ClaudeChatScope`. Notebook
     /// scope never shows a switcher (no paper is known); paper scope behaves
-    /// like `init(paper:database:)`.
-    init(scope: ClaudeChatScope, database: DatabaseManager) {
+    /// like `init(paper:database:readerSource:)`.
+    init(scope: ClaudeChatScope, database: DatabaseManager, readerSource: ReaderQuickActionSource? = nil) {
         switch scope {
         case .paper(let paper):
-            self.init(paper: paper, database: database)
+            self.init(paper: paper, database: database, readerSource: readerSource)
         case .notebook(let notebook):
             self.init(notebook: notebook, database: database)
         }
@@ -78,7 +99,12 @@ struct ClaudePanelView: View {
                 switcher
             }
             Divider()
-            ClaudePanelContentView(viewModel: viewModel)
+            ClaudePanelContentView(
+                viewModel: viewModel,
+                readerSource: readerSource,
+                paperTitle: paper?.title,
+                notebookName: containingNotebook?.name
+            )
         }
         .frame(width: 340)
         .onAppear {
@@ -142,6 +168,9 @@ struct ClaudePanelView: View {
 /// switch (see `ClaudePanelView.switchMode`).
 private struct ClaudePanelContentView: View {
     @ObservedObject var viewModel: ClaudePanelViewModel
+    let readerSource: ReaderQuickActionSource?
+    let paperTitle: String?
+    let notebookName: String?
 
     var body: some View {
         Group {
@@ -151,6 +180,67 @@ private struct ClaudePanelContentView: View {
                 noKeyBody
             }
         }
+    }
+
+    // MARK: - Quick actions (Session 7 Part C)
+
+    /// The paper-scope actions when the active scope is a paper, the
+    /// notebook-scope actions when it's a notebook.
+    private var quickActions: [QuickAction] {
+        viewModel.isNotebookScope ? QuickAction.notebookActions : QuickAction.paperActions
+    }
+
+    /// Assembled fresh on every access from the live reader-source closures
+    /// (if any) plus the scope's paper/notebook titles — cheap enough (a
+    /// couple of PDFKit string reads) to not bother caching, and it keeps
+    /// the quick-action buttons always reflecting the current selection.
+    private var quickActionContext: QuickActionContext {
+        let openHighlight = readerSource?.openHighlight()
+        return QuickActionContext(
+            selection: readerSource?.selection(),
+            surrounding: readerSource?.surrounding(),
+            pageText: readerSource?.pageText(),
+            highlightText: openHighlight?.text,
+            commentText: openHighlight?.comment,
+            paperTitle: paperTitle,
+            notebookName: notebookName
+        )
+    }
+
+    private var quickActionsBar: some View {
+        let context = quickActionContext
+        return FlowLayout(spacing: 6) {
+            ForEach(quickActions) { action in
+                quickActionButton(action, context: context)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+    }
+
+    private func quickActionButton(_ action: QuickAction, context: QuickActionContext) -> some View {
+        let message = QuickActionPrompts.userMessage(for: action, context: context)
+        let reason = QuickActionPrompts.unavailableReason(for: action, context: context)
+        let isDisabled = message == nil || viewModel.isStreaming
+
+        return Button {
+            guard let message else { return }
+            Task { await viewModel.runQuickAction(message) }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: action.systemImage)
+                    .font(.caption2)
+                Text(action.title)
+                    .font(.caption)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.5 : 1.0)
+        .help(reason ?? (viewModel.isStreaming ? "Claude is currently responding." : action.title))
     }
 
     // MARK: - No API key state
@@ -208,6 +298,7 @@ private struct ClaudePanelContentView: View {
             }
 
             Divider()
+            quickActionsBar
             inputBar
         }
     }

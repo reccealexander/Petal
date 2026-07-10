@@ -80,6 +80,14 @@ final class ClaudePanelViewModel: ObservableObject {
         }
     }
 
+    /// Whether the active scope is a notebook (vs. a paper) — used by the
+    /// view to pick the paper-scope or notebook-scope quick-action set
+    /// (Session 7 Part C).
+    var isNotebookScope: Bool {
+        if case .notebook = scope { return true }
+        return false
+    }
+
     /// Called when the panel appears: restores the persisted conversation for
     /// this scope and refreshes the API-key state.
     func onAppear() {
@@ -99,9 +107,28 @@ final class ClaudePanelViewModel: ObservableObject {
     func send() async {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
-
-        messages.append(ChatMessage(role: "user", content: text))
         inputText = ""
+        await stream(userMessage: text)
+    }
+
+    /// Runs a quick action: inserts `message` (already composed by the view
+    /// from `QuickActionPrompts` + the current reader/notebook context) as a
+    /// USER message, then streams Claude's reply through the same path as a
+    /// typed `send()` — the view is responsible for building the message and
+    /// checking availability (Session 7 Part C); this method just knows how
+    /// to run it, keeping the VM free of PDF/DB context assembly.
+    func runQuickAction(_ message: String) async {
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, !isStreaming else { return }
+        await stream(userMessage: text)
+    }
+
+    /// Appends `userMessage` to the conversation, persists it, then streams
+    /// Claude's reply and persists again once it completes. Shared by `send()`
+    /// (typed input) and `runQuickAction(_:)` (pre-composed quick-action
+    /// prompts) so there's exactly one streaming/persist implementation.
+    private func stream(userMessage: String) async {
+        messages.append(ChatMessage(role: "user", content: userMessage))
         try? chatRepo.saveMessages(messages, scope: chatScope, scopeId: scopeId)
 
         // Rebuilt fresh on every send (rather than cached once per session) so

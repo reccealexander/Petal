@@ -113,6 +113,10 @@ struct PDFKitWrapper: NSViewRepresentable {
             name: .PDFViewPageChanged, object: pdfView)
         model.performAddHighlight = { [weak coord] color in coord?.addHighlight(color) }
         model.performGoToPage = { [weak coord] index in coord?.goToPage(index) }
+        model.provideSelectionText = { [weak coord] in coord?.currentSelectionText() }
+        model.provideSurroundingText = { [weak coord] in coord?.currentPageText() }
+        model.providePageText = { [weak coord] in coord?.currentPageText() }
+        model.provideOpenHighlight = { [weak coord] in coord?.openHighlightForQuickAction() }
         coord.rehydrate()
 
         // The view's bounds are typically still zero at this point (SwiftUI
@@ -150,6 +154,12 @@ struct PDFKitWrapper: NSViewRepresentable {
         var tracked: [PDFAnnotation] = []
         var annotationToId: [PDFAnnotation: String] = [:]
         var popover: NSPopover?
+
+        /// The id of the highlight most recently opened (comment popover shown)
+        /// or clicked, tracked for the "Explain this highlight" quick action
+        /// (Session 7 Part C). Cleared implicitly when the highlight is
+        /// deleted (the id simply stops resolving).
+        var lastOpenedHighlightId: String?
 
         /// Set once the one-shot initial page-fit zoom has been applied, so
         /// we never override a zoom level the user has since chosen
@@ -291,6 +301,7 @@ struct PDFKitWrapper: NSViewRepresentable {
 
         func handleAnnotationClick(_ annotation: PDFAnnotation, page: PDFPage) -> Bool {
             guard let highlightId = annotationToId[annotation], let pdfView else { return false }
+            lastOpenedHighlightId = highlightId
             showCommentPopover(highlightId: highlightId, annotation: annotation, page: page, in: pdfView)
             return true
         }
@@ -300,6 +311,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         func deleteHighlight(_ id: String) {
             try? repository.deleteHighlight(id: id)
             popover?.close()
+            if lastOpenedHighlightId == id { lastOpenedHighlightId = nil }
             rehydrate()
         }
 
@@ -336,6 +348,41 @@ struct PDFKitWrapper: NSViewRepresentable {
             DispatchQueue.main.async {
                 pop.contentViewController?.view.window?.makeKey()
             }
+        }
+
+        // MARK: - Quick-action context providers (Session 7 Part C)
+
+        /// The current PDF text selection, trimmed; nil if there is none.
+        func currentSelectionText() -> String? {
+            guard let text = pdfView?.currentSelection?.string else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        /// The full text of the page currently in view (used both as
+        /// "surrounding context" for a selection and as the summarization
+        /// fallback when there's no selection). Falls back to the first page
+        /// of the current selection if `currentPage` hasn't been set yet.
+        func currentPageText() -> String? {
+            let page = pdfView?.currentPage ?? pdfView?.currentSelection?.pages.first
+            guard let text = page?.string else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        /// The last-opened highlight's text + comment for the "Explain this
+        /// highlight" quick action. Falls back to the current text selection
+        /// (treated as the highlight text) if no highlight has been opened,
+        /// so a user who has just made a fresh selection isn't blocked.
+        func openHighlightForQuickAction() -> (text: String, comment: String?)? {
+            if let id = lastOpenedHighlightId, let highlight = try? repository.highlight(id: id) {
+                let comment = try? repository.comment(forHighlight: id)
+                return (text: highlight.selectedText, comment: comment?.body)
+            }
+            if let selection = currentSelectionText() {
+                return (text: selection, comment: nil)
+            }
+            return nil
         }
     }
 }
