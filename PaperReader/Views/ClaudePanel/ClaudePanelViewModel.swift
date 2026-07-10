@@ -1,10 +1,19 @@
 import Foundation
 import PaperReaderCore
 
-/// Orchestrates the Claude side-panel chat for a single paper. Owns the
-/// keychain/client/context-builder/repository backend calls; the view only
-/// reads `@Published` state and calls these methods (no business logic in
-/// the view, per spec).
+/// Which entity the Claude panel is currently answering questions about
+/// (Session 7 Part B, deliverable #1). A paper conversation and a notebook
+/// conversation are persisted as separate `ChatSession` rows (`scope` +
+/// `scope_id`), so switching between them never overwrites the other.
+enum ClaudeChatScope {
+    case paper(Paper)
+    case notebook(Notebook)
+}
+
+/// Orchestrates the Claude side-panel chat for either a single paper or a
+/// notebook. Owns the keychain/client/context-builder/repository backend
+/// calls; the view only reads `@Published` state and calls these methods (no
+/// business logic in the view, per spec).
 @MainActor
 final class ClaudePanelViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
@@ -13,16 +22,16 @@ final class ClaudePanelViewModel: ObservableObject {
     @Published var streamingText: String = ""
     @Published var hasAPIKey: Bool = false
 
-    private let paper: Paper
-    private let pdfURL: URL
+    private let scope: ClaudeChatScope
+    private let papersDirectory: URL
     private let keychain: KeychainService
     private let claude: ClaudeClient
     private let contextBuilder: ContextBuilder
     private let chatRepo: ChatSessionRepository
 
-    init(paper: Paper, database: DatabaseManager) {
-        self.paper = paper
-        self.pdfURL = PDFImportService.fileURL(for: paper, in: database.papersDirectory)
+    init(scope: ClaudeChatScope, database: DatabaseManager) {
+        self.scope = scope
+        self.papersDirectory = database.papersDirectory
         let keychain = KeychainService()
         self.keychain = keychain
         self.claude = ClaudeClient(keychain: keychain)
@@ -30,11 +39,52 @@ final class ClaudePanelViewModel: ObservableObject {
         self.chatRepo = ChatSessionRepository(database: database)
     }
 
-    /// Called when the panel appears: restores the persisted conversation and
-    /// refreshes the API-key state.
+    /// Convenience for existing paper-scope call sites.
+    convenience init(paper: Paper, database: DatabaseManager) {
+        self.init(scope: .paper(paper), database: database)
+    }
+
+    /// Convenience for notebook-scope call sites.
+    convenience init(notebook: Notebook, database: DatabaseManager) {
+        self.init(scope: .notebook(notebook), database: database)
+    }
+
+    private var chatScope: ChatSession.Scope {
+        switch scope {
+        case .paper: return .paper
+        case .notebook: return .notebook
+        }
+    }
+
+    private var scopeId: String {
+        switch scope {
+        case .paper(let paper): return paper.id
+        case .notebook(let notebook): return notebook.id
+        }
+    }
+
+    /// A human-readable title for the panel header: the paper's title or the
+    /// notebook's name.
+    var scopeTitle: String {
+        switch scope {
+        case .paper(let paper): return paper.title ?? "Untitled"
+        case .notebook(let notebook): return notebook.name
+        }
+    }
+
+    /// "Paper" or "Notebook" — used alongside `scopeTitle` in the header label.
+    var scopeKind: String {
+        switch scope {
+        case .paper: return "Paper"
+        case .notebook: return "Notebook"
+        }
+    }
+
+    /// Called when the panel appears: restores the persisted conversation for
+    /// this scope and refreshes the API-key state.
     func onAppear() {
         hasAPIKey = keychain.hasAPIKey
-        messages = chatRepo.loadMessages(scope: .paper, scopeId: paper.id)
+        messages = chatRepo.loadMessages(scope: chatScope, scopeId: scopeId)
     }
 
     /// Re-reads the API key state. Call when the panel reappears (e.g. after
@@ -52,13 +102,24 @@ final class ClaudePanelViewModel: ObservableObject {
 
         messages.append(ChatMessage(role: "user", content: text))
         inputText = ""
-        try? chatRepo.saveMessages(messages, scope: .paper, scopeId: paper.id)
+        try? chatRepo.saveMessages(messages, scope: chatScope, scopeId: scopeId)
 
         // Rebuilt fresh on every send (rather than cached once per session) so
-        // the system prompt always reflects the latest highlights/comments the
-        // user has made while reading — staleness would be worse than the
-        // extra PDF-text-extraction cost here.
-        let system = contextBuilder.buildPaperSystemPrompt(paper: paper, pdfURL: pdfURL)
+        // the system prompt always reflects the latest highlights/comments/
+        // notes the user has made — staleness would be worse than the extra
+        // extraction cost here. Built synchronously on the main actor BEFORE
+        // the `await` below: `Paper`/`Notebook` cross the Core/App module
+        // boundary and we want the whole prompt-construction step (including
+        // any PDF reads) to finish before we hand off to the async stream, to
+        // avoid "sending risks data races" under strict concurrency.
+        let system: String
+        switch scope {
+        case .paper(let paper):
+            let pdfURL = PDFImportService.fileURL(for: paper, in: papersDirectory)
+            system = contextBuilder.buildPaperSystemPrompt(paper: paper, pdfURL: pdfURL)
+        case .notebook(let notebook):
+            system = contextBuilder.buildNotebookSystemPrompt(notebook: notebook)
+        }
         let claudeMessages = messages.map { ClaudeMessage(role: $0.role, content: $0.content) }
 
         isStreaming = true
@@ -76,6 +137,6 @@ final class ClaudePanelViewModel: ObservableObject {
 
         streamingText = ""
         isStreaming = false
-        try? chatRepo.saveMessages(messages, scope: .paper, scopeId: paper.id)
+        try? chatRepo.saveMessages(messages, scope: chatScope, scopeId: scopeId)
     }
 }

@@ -52,6 +52,10 @@ private struct LibraryContentView: View {
     @StateObject private var library: LibraryViewModel
     @Environment(\.openWindow) private var openWindow
     @State private var mode: MainMode = .papers
+    /// Whether the notebook-scope Claude panel (Session 7 Part B) is shown
+    /// alongside the detail pane. Only meaningful — and only enabled from the
+    /// toolbar — while a notebook is selected in the sidebar.
+    @State private var isNotebookClaudePanelVisible: Bool = false
 
     private let columns = [GridItem(.adaptive(minimum: 180), spacing: 20)]
 
@@ -63,7 +67,34 @@ private struct LibraryContentView: View {
         NavigationSplitView {
             sidebar
         } detail: {
-            detail
+            HStack(spacing: 0) {
+                detail
+
+                // Session 7 Part B: notebook-scope Claude Q&A, opened from the
+                // Home window for whichever notebook is currently selected.
+                // Keyed by notebook id so switching the sidebar selection to a
+                // different notebook while the panel is open rebuilds it and
+                // loads that notebook's own persisted conversation.
+                if isNotebookClaudePanelVisible, let notebook = selectedNotebook {
+                    Divider()
+                    ClaudePanelView(notebook: notebook, database: library.database)
+                        .id(notebook.id)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: isNotebookClaudePanelVisible)
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isNotebookClaudePanelVisible.toggle()
+                } label: {
+                    Label("Ask Claude", systemImage: "sparkles")
+                }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
+                .help("Ask Claude about the selected notebook")
+                .disabled(selectedNotebook == nil)
+            }
         }
         .alert(
             "Import",
@@ -246,6 +277,13 @@ private struct LibraryContentView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(40)
+    }
+
+    /// The `Notebook` behind `library.selection`, or nil if the selection is
+    /// `.all`/`.unfiled` (used to gate and target the notebook-scope Claude panel).
+    private var selectedNotebook: Notebook? {
+        guard case .notebook(let id) = library.selection else { return nil }
+        return library.notebooks.first(where: { $0.id == id })
     }
 
     private var titleForSelection: String {

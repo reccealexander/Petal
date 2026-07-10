@@ -25,6 +25,15 @@ public final class NotebookRepository {
         }
     }
 
+    /// A single notebook by id, or nil if it doesn't exist (Session 7 Part B:
+    /// used to resolve a paper's containing notebook for the Claude panel's
+    /// paper/notebook mode switcher).
+    public func notebook(id: String) throws -> Notebook? {
+        try dbQueue.read { db in
+            try Notebook.fetchOne(db, key: id)
+        }
+    }
+
     /// Creates a new notebook (optionally nested under `parentId`) and persists it.
     @discardableResult
     public func create(name: String, parentId: String?) throws -> Notebook {

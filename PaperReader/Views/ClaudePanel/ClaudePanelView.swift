@@ -1,19 +1,147 @@
 import SwiftUI
 import PaperReaderCore
 
-/// A paper-scoped Claude Q&A side panel (spec §5).
+/// A Claude Q&A side panel that can operate in either paper scope or
+/// notebook scope (spec §5, Session 7 Part B extends this to notebooks).
 ///
-/// Implemented as a conditional pane inside `PDFReaderView`'s existing
+/// Implemented as a conditional pane inside the host view's existing
 /// `HStack` (mirroring the Part A thumbnail sidebar) rather than a literal
 /// third `NSSplitViewController` pane — this meets the "slides in, toolbar
 /// toggled" deliverable with far less plumbing than a real split view
 /// controller, at the cost of not being independently resizable by dragging.
+///
+/// When opened for a paper that belongs to a notebook, a "Paper | Notebook"
+/// segmented switcher lets the user swap the active scope without losing
+/// either conversation: each scope persists under its own `ChatSession` row
+/// (`scope` + `scope_id`), so switching just swaps which `ClaudePanelViewModel`
+/// is active and reloads that scope's already-persisted messages.
 struct ClaudePanelView: View {
-    @StateObject private var viewModel: ClaudePanelViewModel
-
-    init(paper: Paper, database: DatabaseManager) {
-        _viewModel = StateObject(wrappedValue: ClaudePanelViewModel(paper: paper, database: database))
+    private enum Mode {
+        case paper
+        case notebook
     }
+
+    @State private var viewModel: ClaudePanelViewModel
+    @State private var mode: Mode
+
+    private let database: DatabaseManager
+    private let paper: Paper?
+    private let containingNotebook: Notebook?
+
+    /// Paper-scope entry point (used by `PDFReaderView`). Looks up the
+    /// paper's containing notebook (if any) so the header can offer the
+    /// paper/notebook switcher; unfiled papers (`notebookId == nil`) just show
+    /// the paper indicator with no switcher.
+    init(paper: Paper, database: DatabaseManager) {
+        self.database = database
+        self.paper = paper
+        let notebook: Notebook? = paper.notebookId.flatMap { notebookId in
+            try? NotebookRepository(database: database).notebook(id: notebookId)
+        }
+        self.containingNotebook = notebook
+        _mode = State(initialValue: .paper)
+        _viewModel = State(initialValue: ClaudePanelViewModel(paper: paper, database: database))
+    }
+
+    /// Notebook-scope entry point (used by the Home window). No current
+    /// paper, so no switcher is shown — just the notebook indicator.
+    init(notebook: Notebook, database: DatabaseManager) {
+        self.database = database
+        self.paper = nil
+        self.containingNotebook = notebook
+        _mode = State(initialValue: .notebook)
+        _viewModel = State(initialValue: ClaudePanelViewModel(notebook: notebook, database: database))
+    }
+
+    /// Generic entry point taking an explicit `ClaudeChatScope`. Notebook
+    /// scope never shows a switcher (no paper is known); paper scope behaves
+    /// like `init(paper:database:)`.
+    init(scope: ClaudeChatScope, database: DatabaseManager) {
+        switch scope {
+        case .paper(let paper):
+            self.init(paper: paper, database: database)
+        case .notebook(let notebook):
+            self.init(notebook: notebook, database: database)
+        }
+    }
+
+    /// Only a paper opened from within a notebook offers the switcher —
+    /// there's nothing to switch to/from otherwise.
+    private var showsSwitcher: Bool {
+        paper != nil && containingNotebook != nil
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            if showsSwitcher {
+                switcher
+            }
+            Divider()
+            ClaudePanelContentView(viewModel: viewModel)
+        }
+        .frame(width: 340)
+        .onAppear {
+            viewModel.onAppear()
+            viewModel.refreshKeyState()
+        }
+    }
+
+    // MARK: - Header / switcher
+
+    private var header: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "sparkles")
+                .foregroundStyle(.secondary)
+            Text("Asking about \(viewModel.scopeKind.lowercased()): \(viewModel.scopeTitle)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, showsSwitcher ? 4 : 8)
+    }
+
+    private var switcher: some View {
+        Picker("Scope", selection: $mode) {
+            Text("Paper").tag(Mode.paper)
+            Text("Notebook").tag(Mode.notebook)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .padding(.horizontal, 10)
+        .padding(.bottom, 8)
+        .onChange(of: mode) { _, newMode in switchMode(to: newMode) }
+    }
+
+    /// Swaps the active view-model to the requested scope and restores that
+    /// scope's persisted conversation. Because each scope is backed by its
+    /// own `ChatSession` row, the conversation we're switching away from is
+    /// untouched and will still be there if the user switches back.
+    private func switchMode(to newMode: Mode) {
+        switch newMode {
+        case .paper:
+            guard let paper else { return }
+            viewModel = ClaudePanelViewModel(paper: paper, database: database)
+        case .notebook:
+            guard let containingNotebook else { return }
+            viewModel = ClaudePanelViewModel(notebook: containingNotebook, database: database)
+        }
+        viewModel.onAppear()
+        viewModel.refreshKeyState()
+    }
+}
+
+/// The actual chat UI (no-API-key state + message list + input bar),
+/// factored out so it can subscribe to whichever `ClaudePanelViewModel` is
+/// currently active via `@ObservedObject` — `ClaudePanelView` itself holds
+/// the view-model in `@State` so it can be swapped wholesale on a scope
+/// switch (see `ClaudePanelView.switchMode`).
+private struct ClaudePanelContentView: View {
+    @ObservedObject var viewModel: ClaudePanelViewModel
 
     var body: some View {
         Group {
@@ -22,11 +150,6 @@ struct ClaudePanelView: View {
             } else {
                 noKeyBody
             }
-        }
-        .frame(width: 340)
-        .onAppear {
-            viewModel.onAppear()
-            viewModel.refreshKeyState()
         }
     }
 
@@ -40,7 +163,7 @@ struct ClaudePanelView: View {
                 .foregroundStyle(.secondary)
             Text("No Anthropic API key set")
                 .font(.headline)
-            Text("Add your Anthropic API key in Settings to ask Claude about this paper.")
+            Text("Add your Anthropic API key in Settings to ask Claude about this \(viewModel.scopeKind.lowercased()).")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -59,7 +182,6 @@ struct ClaudePanelView: View {
 
     private var chatBody: some View {
         VStack(spacing: 0) {
-            Divider()
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
@@ -92,7 +214,7 @@ struct ClaudePanelView: View {
 
     private var inputBar: some View {
         HStack(alignment: .bottom, spacing: 8) {
-            TextField("Ask about this paper…", text: $viewModel.inputText, axis: .vertical)
+            TextField("Ask about this \(viewModel.scopeKind.lowercased())…", text: $viewModel.inputText, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...5)
                 .padding(8)
