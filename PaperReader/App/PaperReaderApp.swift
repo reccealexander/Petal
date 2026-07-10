@@ -41,6 +41,12 @@ struct PaperReaderApp: App {
             NotesWindowRoot(notesID: notesID)
                 .environmentObject(appState)
         }
+
+        // Standard Settings scene — macOS automatically binds this to the
+        // "PaperReader > Settings…" menu item and the ⌘, shortcut.
+        Settings {
+            SettingsView()
+        }
     }
 }
 

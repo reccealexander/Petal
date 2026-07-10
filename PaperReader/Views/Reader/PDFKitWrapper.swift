@@ -101,7 +101,11 @@ struct PDFKitWrapper: NSViewRepresentable {
         NotificationCenter.default.addObserver(
             coord, selector: #selector(Coordinator.jumpRequested(_:)),
             name: .readerJumpToHighlight, object: nil)
+        NotificationCenter.default.addObserver(
+            coord, selector: #selector(Coordinator.pageChanged(_:)),
+            name: .PDFViewPageChanged, object: pdfView)
         model.performAddHighlight = { [weak coord] color in coord?.addHighlight(color) }
+        model.performGoToPage = { [weak coord] index in coord?.goToPage(index) }
         coord.rehydrate()
         return pdfView
     }
@@ -140,6 +144,24 @@ struct PDFKitWrapper: NSViewRepresentable {
 
         @objc func selectionChanged(_ note: Notification) {
             model.hasSelection = (pdfView?.currentSelection?.string?.isEmpty == false)
+        }
+
+        /// Keeps `model.currentPageIndex` in sync as the user scrolls or jumps,
+        /// so the thumbnail sidebar can highlight and auto-scroll to match.
+        @objc func pageChanged(_ note: Notification) {
+            guard let pdfView, let document = pdfView.document,
+                  let page = pdfView.currentPage
+            else { return }
+            model.currentPageIndex = document.index(for: page)
+        }
+
+        /// Jumps the PDFView to the given page index (called from the
+        /// thumbnail sidebar via `model.goToPage(_:)`).
+        func goToPage(_ index: Int) {
+            guard let pdfView, let document = pdfView.document,
+                  let page = document.page(at: index)
+            else { return }
+            pdfView.go(to: page)
         }
 
         /// Handles a request (from the notes window) to jump this paper's reader to a page.

@@ -30,7 +30,7 @@ let package = Package(
             name: "PaperReaderApp",
             dependencies: ["PaperReaderCore"],
             path: "PaperReader",
-            sources: ["App", "Views/Home", "Views/Reader", "Views/Notes"]
+            sources: ["App", "Views/Home", "Views/Reader", "Views/Notes", "Views/ClaudePanel", "Views/Settings"]
         ),
         .testTarget(
             name: "PaperReaderCoreTests",
