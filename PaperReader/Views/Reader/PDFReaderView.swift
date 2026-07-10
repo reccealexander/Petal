@@ -12,19 +12,30 @@ import PaperReaderCore
 /// Session 6 Part A adds a collapsible left-side page-thumbnail sidebar
 /// (`PageThumbnailSidebar`), backed by a per-paper `PageThumbnailProvider`
 /// that caches generated thumbnails to disk so reopening is instant.
+///
+/// Session 9 Part A adds an `isStandaloneWindow` flag: true when this view is
+/// the sole content of its own reader `WindowGroup` (the normal case), false
+/// when it's embedded as one pane of a `CompareReaderView`. The flag gates
+/// two things that only make sense for a real standalone window: registering
+/// with `CompareCoordinator` for drag-to-snap, and closing "this window" when
+/// the user picks a paper from the "Compare side-by-side" menu.
 struct PDFReaderView: View {
     let paper: Paper
     let database: DatabaseManager
+    let isStandaloneWindow: Bool
 
     @StateObject private var model = PDFReaderModel()
     @StateObject private var thumbnailProvider: PageThumbnailProvider
     @StateObject private var tagPopoverModel: ReaderTagPopoverModel
     @State private var isTagPopoverPresented = false
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var compareCoordinator: CompareCoordinator
 
-    init(paper: Paper, database: DatabaseManager) {
+    init(paper: Paper, database: DatabaseManager, isStandaloneWindow: Bool = true) {
         self.paper = paper
         self.database = database
+        self.isStandaloneWindow = isStandaloneWindow
         let document = PDFDocument(url: PDFImportService.fileURL(for: paper, in: database.papersDirectory))
         _thumbnailProvider = StateObject(wrappedValue: PageThumbnailProvider(
             paperId: paper.id,
@@ -32,6 +43,14 @@ struct PDFReaderView: View {
             papersDirectory: database.papersDirectory
         ))
         _tagPopoverModel = StateObject(wrappedValue: ReaderTagPopoverModel(paper: paper, database: database))
+    }
+
+    /// Every other imported paper, for the "Compare side-by-side" menu.
+    /// Excludes the current paper; empty (and thus the menu disabled) if
+    /// nothing else has been imported.
+    private var otherPapers: [Paper] {
+        let repo = NotebookRepository(database: database)
+        return ((try? repo.allPapers()) ?? []).filter { $0.id != paper.id }
     }
 
     var body: some View {
@@ -64,6 +83,25 @@ struct PDFReaderView: View {
             .animation(.easeInOut(duration: 0.2), value: model.isClaudePanelVisible)
             .navigationTitle(paper.title ?? "Untitled")
             .onAppear { updateLastOpened() }
+            // Session 9 Part A (best effort, not GUI-verified): standalone
+            // reader windows register with CompareCoordinator so drag-to-snap
+            // can detect two of them being dragged edge-to-edge. Panes
+            // embedded in a CompareReaderView (isStandaloneWindow == false)
+            // never register — only real standalone windows are snap-able.
+            .background(
+                Group {
+                    if isStandaloneWindow {
+                        WindowAccessor { window in
+                            compareCoordinator.registerReaderWindow(paperId: paper.id, window: window)
+                        }
+                    }
+                }
+            )
+            .onDisappear {
+                if isStandaloneWindow {
+                    compareCoordinator.unregisterReaderWindow(paperId: paper.id)
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .navigation) {
                     Button {
@@ -81,6 +119,35 @@ struct PDFReaderView: View {
                         Label("Notes", systemImage: "note.text")
                     }
                     .help("Open notes for this paper")
+                }
+
+                // Session 9 Part A: explicit, reliable trigger for
+                // side-by-side compare (the REQUIRED path — drag-to-snap in
+                // CompareCoordinator is best-effort on top of this). Lists
+                // every other imported paper; picking one opens a
+                // CompareReaderView pair window and closes this standalone
+                // window (dismiss() is a no-op when embedded as a compare
+                // pane, so this is safe to leave in the toolbar there too).
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        if otherPapers.isEmpty {
+                            Text("No other papers imported")
+                        } else {
+                            ForEach(otherPapers) { other in
+                                Button(other.title ?? "Untitled") {
+                                    openWindow(value: ComparePairID(leftPaperId: paper.id, rightPaperId: other.id))
+                                    compareCoordinator.closeStandaloneWindowIfOpen(paperId: other.id)
+                                    if isStandaloneWindow {
+                                        dismiss()
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Compare side-by-side", systemImage: "rectangle.split.2x1")
+                    }
+                    .help("Compare with another paper side by side")
+                    .disabled(otherPapers.isEmpty)
                 }
 
                 ToolbarItem(placement: .primaryAction) {

@@ -101,19 +101,40 @@ struct PaperReaderApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appState = AppState()
     @StateObject private var appearance = AppearanceManager()
+    // Session 9 Part A: drag-to-snap registry for standalone reader windows
+    // (best effort, not GUI-verified — see CompareCoordinator.swift). Created
+    // once here so every window scene shares the same instance.
+    @StateObject private var compareCoordinator = CompareCoordinator()
 
     var body: some Scene {
         WindowGroup("PaperReader") {
             HomeView()
                 .environmentObject(appState)
                 .environmentObject(appearance)
+                .environmentObject(compareCoordinator)
                 .frame(minWidth: 480, minHeight: 320)
+                // Invisible listener that turns a detected drag-to-snap pair
+                // into an actual openWindow call (AppKit-side detection code
+                // has no SwiftUI environment to call openWindow from itself).
+                .background(CompareSnapBridge())
         }
 
         WindowGroup(for: String.self) { $paperId in
             ReaderWindow(paperId: paperId)
                 .environmentObject(appState)
                 .environmentObject(appearance)
+                .environmentObject(compareCoordinator)
+        }
+
+        // Session 9 Part A: side-by-side compare window for two papers,
+        // reached via PDFReaderView's "Compare side-by-side" menu (explicit,
+        // required path) or via drag-to-snap (best effort). Mirrors the
+        // reader WindowGroup's resolve-by-id pattern via CompareReaderRoot.
+        WindowGroup(for: ComparePairID.self) { $pair in
+            CompareReaderRoot(pair: pair)
+                .environmentObject(appState)
+                .environmentObject(appearance)
+                .environmentObject(compareCoordinator)
         }
 
         WindowGroup(for: NotesWindowID.self) { $notesID in
