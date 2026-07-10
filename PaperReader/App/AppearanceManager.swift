@@ -37,7 +37,11 @@ final class AppearanceManager: ObservableObject {
     /// Opacity of the main library window's chrome, expressed as a percentage.
     @Published var windowTransparency: Double {
         didSet {
-            windowTransparency = min(max(windowTransparency, 1), 100)
+            let clamped = min(max(windowTransparency, 1), 100)
+            if clamped != windowTransparency {
+                windowTransparency = clamped
+                return
+            }
             UserDefaults.standard.set(windowTransparency, forKey: Self.windowTransparencyDefaultsKey)
         }
     }
