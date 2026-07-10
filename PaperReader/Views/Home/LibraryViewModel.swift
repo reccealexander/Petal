@@ -227,6 +227,51 @@ final class LibraryViewModel: ObservableObject {
         papers.first { $0.id == id }
     }
 
+    // MARK: - Delete (Session 11)
+
+    /// Permanently deletes the papers with the given ids: their DB row (which
+    /// cascades highlight/comment/note via FK), any paper-scoped chat
+    /// sessions (no FK, so removed explicitly), their search-index rows, and
+    /// every file on disk (PDF, cover thumbnail, per-page thumbnails). Leaves
+    /// no orphaned rows or files behind.
+    func deletePapers(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+
+        // Snapshot the Paper rows first so we still have file paths to clean
+        // up after the DB rows are gone.
+        let papersToDelete = papers.filter { ids.contains($0.id) }
+
+        try? database.dbQueue.write { db in
+            for id in ids {
+                try db.execute(
+                    sql: "DELETE FROM chat_session WHERE scope = 'paper' AND scope_id = ?",
+                    arguments: [id]
+                )
+                try db.execute(
+                    sql: "DELETE FROM search_index WHERE paper_id = ?",
+                    arguments: [id]
+                )
+                try db.execute(sql: "DELETE FROM paper WHERE id = ?", arguments: [id])
+            }
+        }
+
+        let fileManager = FileManager.default
+        let papersDirectory = database.papersDirectory
+        for paper in papersToDelete {
+            try? fileManager.removeItem(at: PDFImportService.fileURL(for: paper, in: papersDirectory))
+            try? fileManager.removeItem(at: PDFImportService.thumbnailURL(for: paper, in: papersDirectory))
+
+            let pagePrefix = "\(paper.id)_page_"
+            if let contents = try? fileManager.contentsOfDirectory(at: papersDirectory, includingPropertiesForKeys: nil) {
+                for fileURL in contents where fileURL.lastPathComponent.hasPrefix(pagePrefix) {
+                    try? fileManager.removeItem(at: fileURL)
+                }
+            }
+        }
+
+        reloadPapers()
+    }
+
     // MARK: - Grouping (Session 7 Part A, #4)
 
     /// Groups `papers` per `grouping`, preserving `papers`' order within each

@@ -57,6 +57,14 @@ private struct LibraryContentView: View {
     /// toolbar — while a notebook is selected in the sidebar.
     @State private var isNotebookClaudePanelVisible: Bool = false
 
+    /// Click-vs-open selection state for the paper grid (Session 11). Kept
+    /// here (rather than per-card) so shift-click ranges and ⌘O/⌘⌫ can see
+    /// the whole selection.
+    @StateObject private var selection = PaperSelectionController()
+    /// Ids pending a delete confirmation; may be a single card (right-clicked
+    /// or ⌘⌫'d while unselected) or the full multi-selection.
+    @State private var idsPendingDeletion: Set<String>?
+
     private let columns = [GridItem(.adaptive(minimum: 180), spacing: 20)]
 
     init(database: DatabaseManager) {
@@ -197,6 +205,42 @@ private struct LibraryContentView: View {
         .onChange(of: library.searchText) { _, _ in
             library.runSearch()
         }
+        .background {
+            // Hidden buttons (Session 11, Tasks 2 & 3): zero-visible-size so
+            // they don't affect layout, but their keyboard shortcuts are live
+            // whenever this window is key.
+            Button("Open Selected") { openSelected() }
+                .keyboardShortcut("o", modifiers: .command)
+                .opacity(0)
+                .frame(width: 0, height: 0)
+            Button("Delete Selected", role: .destructive) {
+                guard !selection.selectedIDs.isEmpty else { return }
+                idsPendingDeletion = selection.selectedIDs
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+        }
+        .alert(
+            deletionAlertTitle,
+            isPresented: Binding(
+                get: { idsPendingDeletion != nil },
+                set: { isPresented in
+                    if !isPresented { idsPendingDeletion = nil }
+                }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { idsPendingDeletion = nil }
+            Button("Delete", role: .destructive) {
+                if let ids = idsPendingDeletion {
+                    library.deletePapers(ids: ids)
+                    selection.remove(ids)
+                }
+                idsPendingDeletion = nil
+            }
+        } message: {
+            Text(deletionAlertMessage)
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if !library.isSearching {
@@ -224,47 +268,110 @@ private struct LibraryContentView: View {
         if let papersDir = appState.database?.papersDirectory {
             if library.papers.isEmpty {
                 emptyStateView
-            } else if library.grouping == .flat {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 20) {
-                        ForEach(library.papers) { paper in
-                            paperCardButton(paper, papersDir: papersDir)
-                        }
-                    }
-                    .padding(20)
-                }
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 20) {
-                        ForEach(library.groupedPapers(), id: \.title) { group in
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(group.title)
-                                    .font(.title3.bold())
-                                    .padding(.horizontal, 20)
+                ZStack {
+                    // Clicking blank grid space deselects (Session 11, Task
+                    // 1). Cards sit on top and consume their own taps via
+                    // `.contentShape`/`.onTapGesture`, so this only fires for
+                    // genuinely empty space.
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { selection.deselectAll() }
 
-                                LazyVGrid(columns: columns, spacing: 20) {
-                                    ForEach(group.papers) { paper in
-                                        paperCardButton(paper, papersDir: papersDir)
+                    if library.grouping == .flat {
+                        ScrollView {
+                            LazyVGrid(columns: columns, spacing: 20) {
+                                ForEach(library.papers) { paper in
+                                    paperCardButton(paper, papersDir: papersDir)
+                                }
+                            }
+                            .padding(20)
+                        }
+                    } else {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 20) {
+                                ForEach(library.groupedPapers(), id: \.title) { group in
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text(group.title)
+                                            .font(.title3.bold())
+                                            .padding(.horizontal, 20)
+
+                                        LazyVGrid(columns: columns, spacing: 20) {
+                                            ForEach(group.papers) { paper in
+                                                paperCardButton(paper, papersDir: papersDir)
+                                            }
+                                        }
+                                        .padding(.horizontal, 20)
                                     }
                                 }
-                                .padding(.horizontal, 20)
                             }
+                            .padding(.vertical, 20)
                         }
                     }
-                    .padding(.vertical, 20)
                 }
             }
         }
     }
 
+    /// The flat display order of every paper currently shown, used as the
+    /// range for shift-click and as the ordering for ⌘O (Session 11). For
+    /// `.flat` grouping this is just `library.papers`; for grouped modes it's
+    /// each group's papers concatenated in display order.
+    private var visibleOrderedIDs: [String] {
+        if library.grouping == .flat {
+            return library.papers.map(\.id)
+        }
+        return library.groupedPapers().flatMap { $0.papers.map(\.id) }
+    }
+
     @ViewBuilder
     private func paperCardButton(_ paper: Paper, papersDir: URL) -> some View {
-        Button {
-            openWindow(value: paper.id)
-        } label: {
-            PaperCardView(paper: paper, papersDirectory: papersDir, library: library)
+        PaperCardView(
+            paper: paper,
+            papersDirectory: papersDir,
+            library: library,
+            isSelected: selection.isSelected(paper.id),
+            selectedIDs: selection.selectedIDs,
+            onRequestDelete: { ids in idsPendingDeletion = ids }
+        )
+        .onTapGesture {
+            let shiftDown = NSEvent.modifierFlags.contains(.shift)
+            selection.handleTap(paper.id, shiftDown: shiftDown, orderedIDs: visibleOrderedIDs) { id in
+                openWindow(value: id)
+            }
         }
-        .buttonStyle(.plain)
+    }
+
+    /// ⌘O (Session 11, Task 2): opens the current selection. A single
+    /// selected paper opens its normal reader window; exactly two open as a
+    /// side-by-side `ComparePairID` (Session 9); more than two open the first
+    /// two as a compare pair and every remaining paper as its own reader
+    /// window (judgment call — there's no "compare 3+" UI to route into).
+    private func openSelected() {
+        let orderedSelectedIDs = visibleOrderedIDs.filter { selection.selectedIDs.contains($0) }
+        guard !orderedSelectedIDs.isEmpty else { return }
+
+        if orderedSelectedIDs.count == 1 {
+            openWindow(value: orderedSelectedIDs[0])
+        } else {
+            openWindow(value: ComparePairID(leftPaperId: orderedSelectedIDs[0], rightPaperId: orderedSelectedIDs[1]))
+            for id in orderedSelectedIDs.dropFirst(2) {
+                openWindow(value: id)
+            }
+        }
+    }
+
+    private var deletionAlertTitle: String {
+        guard let ids = idsPendingDeletion else { return "" }
+        return ids.count > 1 ? "Delete \(ids.count) papers?" : "Delete this paper?"
+    }
+
+    private var deletionAlertMessage: String {
+        guard let ids = idsPendingDeletion else { return "" }
+        if ids.count > 1 {
+            return "Delete \(ids.count) papers? This removes each PDF and all its highlights, comments, and notes. This can't be undone."
+        }
+        return "This removes the PDF and all its highlights, comments, and notes. This can't be undone."
     }
 
     @ViewBuilder
