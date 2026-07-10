@@ -8,6 +8,12 @@ import GRDB
 /// activation policy, which blocks keyboard focus in secondary windows/popovers
 /// and hides the Dock icon).
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Observer tokens for the notifications used to keep the main SwiftUI
+    /// window hidden while the splash is showing. Removed once the splash
+    /// dismisses so later user-opened windows (reader/notes) are never
+    /// affected.
+    private var hideObservers: [NSObjectProtocol] = []
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -16,8 +22,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // DB work is synchronous and effectively instant, so this is purely a
         // fixed minimum display rather than a readiness gate.
         SplashWindowController.show()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-            SplashWindowController.dismiss()
+
+        // SwiftUI creates/shows its WindowGroup window asynchronously around
+        // launch time — it may not exist yet, or may appear a moment after
+        // this method returns. Hide whatever non-splash windows exist right
+        // now, again on the next runloop turn, and keep hiding any non-splash
+        // window that becomes key or updates for as long as the splash is
+        // active, so the main window never has a chance to flash on screen
+        // before the splash finishes.
+        hideNonSplashWindows()
+        DispatchQueue.main.async { [weak self] in
+            self?.hideNonSplashWindows()
+        }
+
+        // Notification objects (and the NSWindow they reference) aren't
+        // Sendable, so rather than pluck the window out of the notification
+        // itself (which would require sending a non-Sendable value across
+        // the actor boundary into the assumeIsolated closure below), just
+        // re-sweep all current windows whenever either notification fires.
+        let center = NotificationCenter.default
+        let hideIfNeeded: @Sendable (Notification) -> Void = { _ in
+            MainActor.assumeIsolated {
+                guard SplashWindowController.isActive else { return }
+                for window in NSApp.windows where !SplashWindowController.isSplashWindow(window) {
+                    window.orderOut(nil)
+                }
+            }
+        }
+        hideObservers = [
+            center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main, using: hideIfNeeded),
+            center.addObserver(forName: NSWindow.didUpdateNotification, object: nil, queue: .main, using: hideIfNeeded),
+        ]
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.revealMainWindow()
+        }
+    }
+
+    @MainActor
+    private func hideNonSplashWindows() {
+        for window in NSApp.windows where !SplashWindowController.isSplashWindow(window) {
+            window.orderOut(nil)
+        }
+    }
+
+    /// Dismisses the splash, stops hiding non-splash windows, and brings the
+    /// main SwiftUI window to the front as key — timed so the main window
+    /// appears just as the splash fades out.
+    @MainActor
+    private func revealMainWindow() {
+        SplashWindowController.dismiss()
+
+        let center = NotificationCenter.default
+        for observer in hideObservers {
+            center.removeObserver(observer)
+        }
+        hideObservers.removeAll()
+
+        NSApp.activate(ignoringOtherApps: true)
+        for window in NSApp.windows where !SplashWindowController.isSplashWindow(window) {
+            window.makeKeyAndOrderFront(nil)
         }
     }
 

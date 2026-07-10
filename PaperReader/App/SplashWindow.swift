@@ -14,6 +14,13 @@ import AppKit
 enum SplashWindowController {
     private static var window: NSWindow?
 
+    /// Whether the splash window is currently shown.
+    static var isActive: Bool { window != nil }
+
+    /// Whether `candidate` is the splash window itself (as opposed to the
+    /// main SwiftUI window or any other window in the app).
+    static func isSplashWindow(_ candidate: NSWindow) -> Bool { candidate === window }
+
     /// Creates and shows the splash window immediately, above other windows.
     static func show() {
         guard window == nil else { return }
