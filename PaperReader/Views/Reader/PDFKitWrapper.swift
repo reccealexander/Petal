@@ -10,6 +10,12 @@ import PaperReaderCore
 final class AnnotatablePDFView: PDFView {
     /// Returns true if the click hit a tracked highlight and was handled (consume the event).
     var onAnnotationClick: ((PDFAnnotation, PDFPage) -> Bool)?
+    /// Maps an annotation back to the highlight id it belongs to (nil if untracked).
+    var highlightId: ((PDFAnnotation) -> String?)?
+    /// Deletes the highlight with the given id.
+    var onDeleteHighlight: ((String) -> Void)?
+
+    private var pendingDeleteHighlightId: String?
 
     override func mouseDown(with event: NSEvent) {
         let viewPoint = convert(event.locationInWindow, from: nil)
@@ -21,6 +27,34 @@ final class AnnotatablePDFView: PDFView {
             }
         }
         super.mouseDown(with: event)
+    }
+
+    /// Right-clicking a tracked highlight offers to delete it; otherwise falls
+    /// back to PDFView's default contextual menu (copy, etc.).
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let viewPoint = convert(event.locationInWindow, from: nil)
+        if let page = page(for: viewPoint, nearest: false) {
+            let pagePoint = convert(viewPoint, to: page)
+            if let annotation = page.annotation(at: pagePoint),
+               let id = highlightId?(annotation) {
+                pendingDeleteHighlightId = id
+                let menu = NSMenu()
+                let item = NSMenuItem(
+                    title: "Delete Highlight",
+                    action: #selector(deleteHighlightMenuAction(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                menu.addItem(item)
+                return menu
+            }
+        }
+        return super.menu(for: event)
+    }
+
+    @objc private func deleteHighlightMenuAction(_ sender: NSMenuItem) {
+        if let id = pendingDeleteHighlightId { onDeleteHighlight?(id) }
+        pendingDeleteHighlightId = nil
     }
 }
 
@@ -59,6 +93,8 @@ struct PDFKitWrapper: NSViewRepresentable {
         pdfView.onAnnotationClick = { [weak coord] annotation, page in
             coord?.handleAnnotationClick(annotation, page: page) ?? false
         }
+        pdfView.highlightId = { [weak coord] annotation in coord?.annotationToId[annotation] }
+        pdfView.onDeleteHighlight = { [weak coord] id in coord?.deleteHighlight(id) }
         NotificationCenter.default.addObserver(
             coord, selector: #selector(Coordinator.selectionChanged(_:)),
             name: .PDFViewSelectionChanged, object: pdfView)
@@ -162,6 +198,14 @@ struct PDFKitWrapper: NSViewRepresentable {
             return true
         }
 
+        /// Deletes a highlight (its comment cascades away via the FK) and redraws
+        /// from the database.
+        func deleteHighlight(_ id: String) {
+            try? repository.deleteHighlight(id: id)
+            popover?.close()
+            rehydrate()
+        }
+
         func showCommentPopover(highlightId: String, annotation: PDFAnnotation, page: PDFPage, in pdfView: PDFView) {
             popover?.close()
 
@@ -189,6 +233,12 @@ struct PDFKitWrapper: NSViewRepresentable {
             let rectInView = pdfView.convert(annotation.bounds, from: page)
             pop.show(relativeTo: rectInView, of: pdfView, preferredEdge: .maxY)
             self.popover = pop
+
+            // Ensure the popover's window becomes key so the TextEditor can
+            // receive keyboard input immediately.
+            DispatchQueue.main.async {
+                pop.contentViewController?.view.window?.makeKey()
+            }
         }
     }
 }

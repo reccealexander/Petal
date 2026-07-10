@@ -1,11 +1,28 @@
 import SwiftUI
+import AppKit
 import PaperReaderCore
 import GRDB
+
+/// Promotes the process to a regular foreground app so windows and popovers can
+/// become key (a bare SwiftPM executable otherwise launches without a proper
+/// activation policy, which blocks keyboard focus in secondary windows/popovers
+/// and hides the Dock icon).
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
+    }
+}
 
 /// App entry point (spec §2). The main window shows `HomeView`; each opened
 /// paper gets its own reader window keyed by `Paper.id`.
 @main
 struct PaperReaderApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appState = AppState()
 
     var body: some Scene {

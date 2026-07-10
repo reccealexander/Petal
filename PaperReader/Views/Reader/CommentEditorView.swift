@@ -18,6 +18,7 @@ struct CommentEditorView: View {
     let onDelete: (() -> Void)?
 
     @State private var text: String
+    @FocusState private var editorFocused: Bool
 
     init(
         initialText: String,
@@ -45,6 +46,7 @@ struct CommentEditorView: View {
 
             TextEditor(text: $text)
                 .font(.body)
+                .focused($editorFocused)
                 .scrollContentBackground(.hidden)
                 .padding(6)
                 .frame(minHeight: 120)
@@ -81,5 +83,6 @@ struct CommentEditorView: View {
         }
         .padding(16)
         .frame(width: 320)
+        .onAppear { DispatchQueue.main.async { editorFocused = true } }
     }
 }
