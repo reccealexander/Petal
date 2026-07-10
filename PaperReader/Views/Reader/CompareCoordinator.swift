@@ -151,7 +151,7 @@ struct WindowAccessor: NSViewRepresentable {
 ///
 /// NOT GUI-VERIFIED — see `CompareCoordinator`.
 struct CompareSnapBridge: View {
-    @EnvironmentObject private var coordinator: CompareCoordinator
+    @ObservedObject var coordinator: CompareCoordinator
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {

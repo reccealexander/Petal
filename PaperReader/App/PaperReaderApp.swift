@@ -116,7 +116,7 @@ struct PaperReaderApp: App {
                 // Invisible listener that turns a detected drag-to-snap pair
                 // into an actual openWindow call (AppKit-side detection code
                 // has no SwiftUI environment to call openWindow from itself).
-                .background(CompareSnapBridge())
+                .background(CompareSnapBridge(coordinator: compareCoordinator))
         }
 
         WindowGroup(for: String.self) { $paperId in
