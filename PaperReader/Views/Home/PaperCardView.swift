@@ -14,6 +14,7 @@ struct PaperCardView: View {
 
     @State private var isEditingTags = false
     @State private var newTagText = ""
+    @State private var isConfirmingDeleteNote = false
     @Environment(\.openWindow) private var openWindow
 
     init(paper: Paper, papersDirectory: URL, library: LibraryViewModel) {
@@ -76,6 +77,17 @@ struct PaperCardView: View {
             Button("Open Note") {
                 openNote()
             }
+            Button("Delete Note…", role: .destructive) {
+                isConfirmingDeleteNote = true
+            }
+        }
+        .alert("Delete this note?", isPresented: $isConfirmingDeleteNote) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                _ = try? NoteRepository(database: library.database).deletePrimaryNote(forPaper: paper.id)
+            }
+        } message: {
+            Text("This can't be undone.")
         }
     }
 

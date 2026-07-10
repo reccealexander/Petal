@@ -78,6 +78,26 @@ public final class NoteRepository {
         return note
     }
 
+    /// Deletes a note by id and removes its `search_index` entry. Notes have no
+    /// FK children (their `linked_highlight_ids` is just a JSON column, not a
+    /// relationship) — the underlying highlights/comments a note references
+    /// are independent rows and are left untouched.
+    public func deleteNote(id: String) throws {
+        try dbQueue.write { db in
+            try SearchIndex.remove(entityId: id, in: db)
+            _ = try Note.deleteOne(db, key: id)
+        }
+    }
+
+    /// Deletes the paper's primary note, if one exists. Returns whether a note
+    /// was found and deleted, so callers can no-op cleanly when there isn't one.
+    @discardableResult
+    public func deletePrimaryNote(forPaper paperId: String) throws -> Bool {
+        guard let existing = try primaryNote(forPaper: paperId) else { return false }
+        try deleteNote(id: existing.id)
+        return true
+    }
+
     /// JSON codec for the `note.linked_highlight_ids` column (array of highlight ids).
     public static func encodeLinkedIds(_ ids: [String]) -> String {
         guard let data = try? JSONEncoder().encode(ids),

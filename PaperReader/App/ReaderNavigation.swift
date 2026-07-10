@@ -12,6 +12,19 @@ extension Notification.Name {
     static let readerJumpToHighlight = Notification.Name("PaperReader.readerJumpToHighlight")
 }
 
+/// A one-shot "jump to this page when the reader for this paper next finishes
+/// loading" request. A freshly-opened reader window's PDFView coordinator isn't
+/// subscribed to `.readerJumpToHighlight` yet, so callers set the target here
+/// BEFORE `openWindow(value: paperId)`, and the reader consumes it on load.
+@MainActor
+enum PendingReaderJump {
+    private static var targets: [String: Int] = [:]
+    /// Record that the reader for `paperId` should jump to `pageIndex` on load.
+    static func set(paperId: String, pageIndex: Int) { targets[paperId] = pageIndex }
+    /// Return and clear any pending page for `paperId` (nil if none).
+    static func take(paperId: String) -> Int? { targets.removeValue(forKey: paperId) }
+}
+
 /// Custom URL scheme embedded in notes markdown to link back to a highlight.
 enum HighlightLink {
     static let scheme = "paperreader"

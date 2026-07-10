@@ -227,6 +227,20 @@ final class NotesLibraryViewModel: ObservableObject {
         selectedNoteId = note.id
         return note
     }
+
+    // MARK: - Deletion
+
+    /// Deletes a note by id and refreshes the list. Highlights/comments the
+    /// note referenced are untouched — `NoteRepository.deleteNote` only
+    /// removes the `note` row and its `search_index` entry. If the deleted
+    /// note was the one open in the editor, clears the selection.
+    func deleteNote(id: String) {
+        try? noteRepo.deleteNote(id: id)
+        if selectedNoteId == id {
+            selectedNoteId = nil
+        }
+        refresh()
+    }
 }
 
 /// Top-level "Notes" section (spec Session 7 Part A, #6): a sortable/filterable
@@ -234,6 +248,8 @@ final class NotesLibraryViewModel: ObservableObject {
 /// kinds, and an inline editor for the selected note.
 struct NotesLibraryView: View {
     @StateObject private var viewModel: NotesLibraryViewModel
+    /// The id of the note pending a delete confirmation, if any (drives the alert).
+    @State private var noteIdPendingDelete: String?
 
     init(database: DatabaseManager) {
         _viewModel = StateObject(wrappedValue: NotesLibraryViewModel(database: database))
@@ -265,6 +281,20 @@ struct NotesLibraryView: View {
             }
         }
         .onAppear { viewModel.refresh() }
+        .alert("Delete this note?", isPresented: Binding(
+            get: { noteIdPendingDelete != nil },
+            set: { if !$0 { noteIdPendingDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                if let id = noteIdPendingDelete {
+                    viewModel.deleteNote(id: id)
+                }
+                noteIdPendingDelete = nil
+            }
+        } message: {
+            Text("This can't be undone.")
+        }
     }
 
     @ViewBuilder
@@ -290,12 +320,16 @@ struct NotesLibraryView: View {
                 ForEach(viewModel.groupedNotes(), id: \.title) { group in
                     if group.title.isEmpty {
                         ForEach(group.notes) { note in
-                            noteRow(note).tag(note.id)
+                            noteRow(note)
+                                .tag(note.id)
+                                .contextMenu { deleteMenuItem(for: note) }
                         }
                     } else {
                         Section(group.title) {
                             ForEach(group.notes) { note in
-                                noteRow(note).tag(note.id)
+                                noteRow(note)
+                                    .tag(note.id)
+                                    .contextMenu { deleteMenuItem(for: note) }
                             }
                         }
                     }
@@ -346,6 +380,15 @@ struct NotesLibraryView: View {
 
     private func formattedDate(_ date: Date) -> String {
         date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    @ViewBuilder
+    private func deleteMenuItem(for note: Note) -> some View {
+        Button(role: .destructive) {
+            noteIdPendingDelete = note.id
+        } label: {
+            Label("Delete Note…", systemImage: "trash")
+        }
     }
 
     /// Menu offering the three note kinds (#6.4): unlinked, linked to a
@@ -451,6 +494,13 @@ struct NoteEditorView: View {
                 Spacer()
 
                 if let paperId {
+                    Button {
+                        PendingReaderJump.set(paperId: paperId, pageIndex: 0)
+                        openWindow(value: paperId)
+                    } label: {
+                        Label("Open PDF", systemImage: "doc.richtext")
+                    }
+
                     Button {
                         openWindow(value: NotesWindowID(paperId: paperId))
                     } label: {

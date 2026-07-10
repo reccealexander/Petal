@@ -25,6 +25,9 @@ final class NotesViewModel: ObservableObject {
         self?.saveNow()
     }
     private var note: Note?
+    /// Set once `deleteNote()` runs so a save already in flight (or a stray
+    /// `saveNow()` call) can't resurrect the row after deletion.
+    private var deleted = false
 
     init(paperId: String, paperTitle: String, database: DatabaseManager) {
         self.paperId = paperId
@@ -72,11 +75,21 @@ final class NotesViewModel: ObservableObject {
 
     /// Persists the current body / linked highlight ids to the loaded note.
     private func saveNow() {
-        guard var n = note else { return }
+        guard !deleted, var n = note else { return }
         n.body = body
         n.linkedHighlightIds = NoteRepository.encodeLinkedIds(linkedHighlightIds)
         try? noteRepo.save(n)
         note = n
+    }
+
+    /// Deletes the currently-loaded note. Cancels any pending autosave first
+    /// so the debounced save can't fire afterward and re-insert it.
+    func deleteNote() {
+        autosave.cancel()
+        guard let n = note else { return }
+        try? noteRepo.deleteNote(id: n.id)
+        deleted = true
+        note = nil
     }
 
     /// Collapses `text` to a single line and truncates it to ~60 characters.

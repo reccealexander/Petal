@@ -11,6 +11,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+
+        // Brief icon-on-white splash while the main window spins up. Startup
+        // DB work is synchronous and effectively instant, so this is purely a
+        // fixed minimum display rather than a readiness gate.
+        SplashWindowController.show()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            SplashWindowController.dismiss()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

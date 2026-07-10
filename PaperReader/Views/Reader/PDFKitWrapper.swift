@@ -83,11 +83,12 @@ struct PDFKitWrapper: NSViewRepresentable {
 
     func makeNSView(context: Context) -> PDFView {
         let pdfView = AnnotatablePDFView()
-        // Session 7 Part A: page-size opening. `autoScales` would stretch
-        // every page to fill the (often very wide) window; instead we manage
-        // the scale factor ourselves so a page opens at a comfortable
-        // reading width and PDFKit centers it horizontally. See
-        // `Coordinator.applyInitialZoomIfNeeded()` for the one-shot fit.
+        // Session 8: default-on-open zoom is native page size (100%),
+        // managed ourselves rather than via `autoScales` (which would
+        // stretch every page to fill the often-very-wide window). PDFKit
+        // centers a page narrower than the view for free, so this yields
+        // natural margins on wide windows. See
+        // `Coordinator.applyInitialZoomIfNeeded()` for the one-shot apply.
         pdfView.autoScales = false
         pdfView.minScaleFactor = 0.25
         pdfView.maxScaleFactor = 5.0
@@ -199,25 +200,24 @@ struct PDFKitWrapper: NSViewRepresentable {
             pdfView.go(to: page)
         }
 
-        /// One-shot "natural page size" fit (Feature 2, Session 7 Part A):
-        /// mimics Preview.app by capping the page to a comfortable reading
-        /// column (~850pt) rather than stretching it to the full window
-        /// width, while still shrinking to fit on narrower windows. PDFKit
-        /// automatically centers a page that's narrower than the view, so
-        /// this yields natural margins on wide windows for free. Runs at
-        /// most once per document load — after that, whatever scale the
-        /// user picks (by pinch/zoom or the zoom controls) is left alone.
+        /// One-shot "native page size" fit (Session 8): opens the document at
+        /// 100% scale (`scaleFactor = 1.0`) — the page's true point size —
+        /// rather than a fit-to-width column. This reads well for a
+        /// US-Letter/A4 page on a laptop, and PDFKit automatically centers a
+        /// page that's narrower than the view, so this yields natural
+        /// margins on wide windows for free. Runs at most once per document
+        /// load — after that, whatever scale the user picks (by pinch/zoom
+        /// or the zoom controls) is left alone.
         func applyInitialZoomIfNeeded() {
             guard !didApplyInitialZoom,
                   let pdfView,
                   let document = pdfView.document,
-                  document.pageCount > 0,
-                  let firstPage = document.page(at: 0)
+                  document.pageCount > 0
             else { return }
 
             // Bounds may still be zero if this is racing SwiftUI's layout
             // pass; try again on the next run loop turn rather than
-            // committing to a bogus fit-to-size scale.
+            // committing before the view has a real size.
             guard pdfView.bounds.width > 0, pdfView.bounds.height > 0 else {
                 DispatchQueue.main.async { [weak self] in
                     self?.applyInitialZoomIfNeeded()
@@ -225,13 +225,18 @@ struct PDFKitWrapper: NSViewRepresentable {
                 return
             }
 
-            let pageWidthPoints = firstPage.bounds(for: .cropBox).width
-            guard pageWidthPoints > 0 else { return }
-
-            let targetWidth: CGFloat = 850
-            let targetScale = targetWidth / pageWidthPoints
-            pdfView.scaleFactor = min(pdfView.scaleFactorForSizeToFit, targetScale)
+            pdfView.scaleFactor = 1.0
             didApplyInitialZoom = true
+
+            // Session 8: consume any pending cross-window jump (e.g. from
+            // clicking a highlight reference in the notes window, which set
+            // this before opening a possibly-fresh reader window) now that
+            // the initial zoom/layout has settled, so the resulting scroll
+            // position sticks.
+            if let pageIndex = PendingReaderJump.take(paperId: paperId),
+               let page = document.page(at: pageIndex) {
+                pdfView.go(to: page)
+            }
         }
 
         /// Handles a request (from the notes window) to jump this paper's reader to a page.

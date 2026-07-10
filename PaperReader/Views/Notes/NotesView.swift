@@ -6,6 +6,8 @@ import PaperReaderCore
 struct NotesView: View {
     @StateObject private var model: NotesViewModel
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismiss) private var dismiss
+    @State private var isConfirmingDelete = false
 
     init(paperId: String, paperTitle: String, database: DatabaseManager) {
         _model = StateObject(wrappedValue: NotesViewModel(paperId: paperId, paperTitle: paperTitle, database: database))
@@ -55,6 +57,10 @@ struct NotesView: View {
         }
         .environment(\.openURL, OpenURLAction { url in
             if let parsed = HighlightLink.parse(url) {
+                // Set the pending jump BEFORE opening the window: covers a
+                // fresh reader window (consumed on load). The notification
+                // below covers a reader window that's already open.
+                PendingReaderJump.set(paperId: model.paperId, pageIndex: parsed.pageIndex)
                 openWindow(value: model.paperId)
                 NotificationCenter.default.post(
                     name: .readerJumpToHighlight, object: nil,
@@ -67,6 +73,34 @@ struct NotesView: View {
         .onAppear { model.load() }
         .onDisappear { model.flushSave() }
         .frame(minWidth: 380, minHeight: 420)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    PendingReaderJump.set(paperId: model.paperId, pageIndex: 0)
+                    openWindow(value: model.paperId)
+                } label: {
+                    Label("Open PDF", systemImage: "doc.richtext")
+                }
+                .help("Open PDF")
+            }
+            ToolbarItem(placement: .destructiveAction) {
+                Button(role: .destructive) {
+                    isConfirmingDelete = true
+                } label: {
+                    Label("Delete Note", systemImage: "trash")
+                }
+                .help("Delete Note")
+            }
+        }
+        .alert("Delete this note?", isPresented: $isConfirmingDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                model.deleteNote()
+                dismiss()
+            }
+        } message: {
+            Text("This can't be undone.")
+        }
     }
 
     /// Renders `model.body` as inline markdown (links, emphasis, etc.), falling
