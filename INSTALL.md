@@ -1,0 +1,25 @@
+# Install Paper Reader
+
+## 1. Copy the app to Applications
+
+1. Open `PaperReader.dmg`.
+2. Drag **Paper Reader** onto the **Applications** folder shortcut beside it.
+
+## 2. Open the app for the first time
+
+Because Paper Reader is distributed without Apple Developer signing or notarization, macOS Gatekeeper will block a normal double-click the first time you launch it.
+
+1. Open your **Applications** folder.
+2. Right-click (or Control-click) **Paper Reader** and choose **Open**.
+3. In the dialog that appears, click **Open** again.
+
+You only need to do this once.
+
+## If “Open” is still unavailable
+
+1. Open **System Settings** and select **Privacy & Security**.
+2. Scroll down to the **Security** section.
+3. Next to the message that Paper Reader was blocked, click **Open Anyway**.
+4. Confirm that you want to open the app.
+
+After the first successful launch, Paper Reader will open normally with a regular double-click.
