@@ -33,6 +33,9 @@ struct PDFReaderView: View {
     @State private var savedWindowAppearance: WindowAppearance?
     @State private var readingStatus: ReadingStatus
     @State private var isHighlightTaxonomyPresented = false
+    @State private var isFocusToolbarExpanded = false
+    @State private var focusToolbarOffset: CGSize = .zero
+    @GestureState private var focusToolbarDragOffset: CGSize = .zero
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var snapController: WindowSnapController
@@ -91,6 +94,17 @@ struct PDFReaderView: View {
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
+            .overlay(alignment: .topTrailing) {
+                if focus.isActive {
+                    focusToolbar
+                        .padding(16)
+                        .offset(
+                            x: focusToolbarOffset.width + focusToolbarDragOffset.width,
+                            y: focusToolbarOffset.height + focusToolbarDragOffset.height
+                        )
+                        .transition(.scale(scale: 0.9, anchor: .topTrailing).combined(with: .opacity))
+                }
+            }
             .animation(.easeInOut(duration: 0.2), value: model.isThumbnailSidebarVisible)
             .animation(.easeInOut(duration: 0.2), value: model.isClaudePanelVisible)
             .navigationTitle(paper.title ?? "Untitled")
@@ -124,7 +138,11 @@ struct PDFReaderView: View {
                     snapController.unregister(ref: .reader(paperId: paper.id))
                 }
             }
-            .onChange(of: focus.isActive) { _, _ in
+            .onChange(of: focus.isActive) { _, isActive in
+                if isActive {
+                    isFocusToolbarExpanded = false
+                    focusToolbarOffset = .zero
+                }
                 if let readerWindow { updateWindowAppearance(for: readerWindow) }
             }
             .onExitCommand {
@@ -264,6 +282,82 @@ struct PDFReaderView: View {
                 }
                 }
             }
+    }
+
+    /// The sole piece of reader chrome retained in Focus mode. It starts as a
+    /// small disclosure button at the top-trailing corner and uses the same
+    /// Notes, highlight-browser, and add-highlight actions as the main toolbar.
+    private var focusToolbar: some View {
+        HStack(spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.16)) {
+                    isFocusToolbarExpanded.toggle()
+                }
+            } label: {
+                Image(systemName: isFocusToolbarExpanded ? "chevron.right" : "slider.horizontal.3")
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.plain)
+            .help(isFocusToolbarExpanded ? "Collapse Focus toolbar" : "Expand Focus toolbar")
+
+            if isFocusToolbarExpanded {
+                Divider()
+                    .frame(height: 20)
+
+                Button {
+                    openWindow(value: NotesWindowID(paperId: paper.id))
+                } label: {
+                    Image(systemName: "note.text")
+                }
+                .buttonStyle(.plain)
+                .help("Open notes for this paper")
+
+                Button {
+                    isHighlightTaxonomyPresented = true
+                } label: {
+                    Image(systemName: "list.bullet.rectangle")
+                }
+                .buttonStyle(.plain)
+                .help("Highlights")
+
+                ForEach(HighlightColor.allCases) { color in
+                    Button {
+                        model.addHighlight(color)
+                    } label: {
+                        Circle().fill(Color(nsColor: color.nsColor))
+                            .frame(width: 14, height: 14)
+                            .overlay(Circle().stroke(Color.secondary.opacity(0.5), lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Highlight \(color.displayName)")
+                    .disabled(!model.hasSelection)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.primary.opacity(0.16), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.2), radius: 8, y: 3)
+        .contentShape(Rectangle())
+        .simultaneousGesture(
+            DragGesture()
+                .updating($focusToolbarDragOffset) { value, state, _ in
+                    state = value.translation
+                }
+                .onEnded { value in
+                    focusToolbarOffset.width += value.translation.width
+                    focusToolbarOffset.height += value.translation.height
+                }
+        )
+        .sheet(isPresented: $isHighlightTaxonomyPresented) {
+            HighlightTaxonomyView(paper: paper, database: database) { page in
+                model.goToPage(page)
+            }
+        }
     }
 
     private func updateWindowAppearance(for window: NSWindow) {
