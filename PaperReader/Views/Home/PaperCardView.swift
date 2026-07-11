@@ -341,7 +341,6 @@ struct PaperCardView: View {
 
     private func loadThumbnailImage() -> NSImage? {
         let url = PDFImportService.thumbnailURL(for: paper, in: papersDirectory)
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return NSImage(contentsOf: url)
+        return ThumbnailImageCache.image(at: url)
     }
 }

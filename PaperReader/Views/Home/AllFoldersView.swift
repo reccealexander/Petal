@@ -119,7 +119,6 @@ private struct AllFolderCard: View {
 
     private func thumbnail(for paper: Paper) -> NSImage? {
         let url = PDFImportService.thumbnailURL(for: paper, in: papersDirectory)
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
-        return NSImage(contentsOf: url)
+        return ThumbnailImageCache.image(at: url)
     }
 }
