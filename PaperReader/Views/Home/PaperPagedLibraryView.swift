@@ -75,6 +75,11 @@ struct PaperPagedLibraryView: View {
                 openKeyboardSelection()
                 return .handled
             }
+            .onKeyPress(.escape) {
+                guard !selection.selectedIDs.isEmpty else { return .ignored }
+                selection.deselectAll()
+                return .handled
+            }
         }
     }
 

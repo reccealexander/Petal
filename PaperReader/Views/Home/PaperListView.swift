@@ -9,31 +9,34 @@ struct PaperListView: View {
     let onDeselect: () -> Void
 
     var body: some View {
-        ZStack {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture(perform: onDeselect)
-
+        GeometryReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    if library.grouping == .flat {
-                        ForEach(library.papers) { paper in
-                            row(paper, orderedIDs: library.papers.map(\.id))
-                        }
-                    } else {
-                        ForEach(library.groupedPapers(), id: \.title) { group in
-                            Text(group.title)
-                                .font(.headline)
-                                .padding(.horizontal, 20)
-                                .padding(.top, 12)
+                ZStack(alignment: .topLeading) {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: onDeselect)
 
-                            ForEach(group.papers) { paper in
-                                row(paper, orderedIDs: visibleOrderedIDs)
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        if library.grouping == .flat {
+                            ForEach(library.papers) { paper in
+                                row(paper, orderedIDs: library.papers.map(\.id))
+                            }
+                        } else {
+                            ForEach(library.groupedPapers(), id: \.title) { group in
+                                Text(group.title)
+                                    .font(.headline)
+                                    .padding(.horizontal, 20)
+                                    .padding(.top, 12)
+
+                                ForEach(group.papers) { paper in
+                                    row(paper, orderedIDs: visibleOrderedIDs)
+                                }
                             }
                         }
                     }
+                    .padding(.vertical, 16)
                 }
-                .padding(.vertical, 16)
+                .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .topLeading)
             }
         }
     }

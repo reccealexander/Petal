@@ -13,15 +13,20 @@ struct PaperGridView: View {
     private let columns = [GridItem(.adaptive(minimum: 180), spacing: 20)]
 
     var body: some View {
-        ZStack {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture(perform: onDeselect)
+        GeometryReader { proxy in
+            ScrollView {
+                ZStack(alignment: .topLeading) {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: onDeselect)
 
-            if library.grouping == .flat {
-                flatGrid
-            } else {
-                groupedGrid
+                    if library.grouping == .flat {
+                        flatGrid
+                    } else {
+                        groupedGrid
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .topLeading)
             }
         }
     }
@@ -34,36 +39,32 @@ struct PaperGridView: View {
     }
 
     private var flatGrid: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 20) {
-                ForEach(library.papers) { paper in
-                    paperCard(paper)
-                }
+        LazyVGrid(columns: columns, spacing: 20) {
+            ForEach(library.papers) { paper in
+                paperCard(paper)
             }
-            .padding(20)
         }
+        .padding(20)
     }
 
     private var groupedGrid: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 20) {
-                ForEach(library.groupedPapers(), id: \.title) { group in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(group.title)
-                            .font(.title3.bold())
-                            .padding(.horizontal, 20)
-
-                        LazyVGrid(columns: columns, spacing: 20) {
-                            ForEach(group.papers) { paper in
-                                paperCard(paper)
-                            }
-                        }
+        LazyVStack(alignment: .leading, spacing: 20) {
+            ForEach(library.groupedPapers(), id: \.title) { group in
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(group.title)
+                        .font(.title3.bold())
                         .padding(.horizontal, 20)
+
+                    LazyVGrid(columns: columns, spacing: 20) {
+                        ForEach(group.papers) { paper in
+                            paperCard(paper)
+                        }
                     }
+                    .padding(.horizontal, 20)
                 }
             }
-            .padding(.vertical, 20)
         }
+        .padding(.vertical, 20)
     }
 
     private func paperCard(_ paper: Paper) -> some View {
