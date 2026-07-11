@@ -13,10 +13,10 @@ struct FreeSpaceCanvasView: View {
     @State private var livePositions: [String: CGPoint] = [:]
     @State private var graphMode = false
 
-    // FreeSpacePaperCard's laid-out size is approximately 138 x 190 points.
+    // FreeSpacePaperCard's laid-out size is approximately 176 x 250 points.
     // Since `.position` uses its center, these half dimensions keep the whole
     // card inside the canvas.
-    private let cardHalfSize = CGSize(width: 69, height: 95)
+    private let cardHalfSize = CGSize(width: 88, height: 125)
 
     var body: some View {
         GeometryReader { geo in
@@ -214,6 +214,8 @@ struct FreeSpaceCanvasView: View {
 }
 
 private struct FreeSpacePaperCard: View {
+    private static let thumbnailSize = CGSize(width: 160, height: 200)
+
     let paper: Paper
     let papersDirectory: URL
     let hasNotes: Bool
@@ -227,7 +229,7 @@ private struct FreeSpacePaperCard: View {
         VStack(alignment: .leading, spacing: 6) {
             ZStack(alignment: .topTrailing) {
                 thumbnail
-                    .frame(width: 112, height: 142)
+                    .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
                     .background(Color.secondary.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
 
@@ -238,11 +240,12 @@ private struct FreeSpacePaperCard: View {
                         .padding(5)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             }
+            .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
 
             Text(paper.title ?? "Untitled")
                 .font(.caption)
                 .lineLimit(2)
-                .frame(width: 122, alignment: .leading)
+                .frame(width: Self.thumbnailSize.width, alignment: .leading)
         }
         .padding(8)
         .background(
