@@ -31,7 +31,7 @@ enum SplashWindowController {
     static func show(onResearchNow: @escaping () -> Void) {
         guard window == nil else { return }
 
-        let windowSize = NSSize(width: 360, height: 420)
+        let windowSize = NSSize(width: 300, height: 340)
         let splash = NSWindow(
             contentRect: NSRect(origin: .zero, size: windowSize),
             styleMask: [.borderless],
@@ -43,7 +43,7 @@ enum SplashWindowController {
         splash.hasShadow = true
         splash.backgroundColor = .windowBackgroundColor
         splash.level = .floating
-        splash.isMovableByWindowBackground = false
+        splash.isMovableByWindowBackground = true
         // Must NOT ignore mouse events — the "Research Now" button needs to
         // receive clicks.
 
@@ -53,10 +53,10 @@ enum SplashWindowController {
 
         // Icon, clipped to a rounded square so it still reads as the app
         // icon shape, centered near the top of the window.
-        let iconSide: CGFloat = 220
+        let iconSide: CGFloat = 170
         let iconOrigin = NSPoint(
             x: (windowSize.width - iconSide) / 2,
-            y: windowSize.height - 48 - iconSide
+            y: windowSize.height - 34 - iconSide
         )
         let iconContainer = NSView(frame: NSRect(origin: iconOrigin, size: NSSize(width: iconSide, height: iconSide)))
         iconContainer.wantsLayer = true
@@ -72,10 +72,10 @@ enum SplashWindowController {
         iconContainer.addSubview(imageView)
 
         // "Research Now" button, centered below the icon.
-        let buttonSize = NSSize(width: 180, height: 36)
+        let buttonSize = NSSize(width: 160, height: 34)
         let buttonOrigin = NSPoint(
             x: (windowSize.width - buttonSize.width) / 2,
-            y: iconOrigin.y - 40 - buttonSize.height
+            y: iconOrigin.y - 32 - buttonSize.height
         )
         let button = NSButton(frame: NSRect(origin: buttonOrigin, size: buttonSize))
         button.title = "Research Now"
