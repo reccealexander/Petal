@@ -183,6 +183,26 @@ public final class NotebookRepository {
         }
     }
 
+    /// Persists the exact PDFKit destination used to resume reading.
+    public func setResumePosition(paperId: String, page: Int, offset: Double) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE paper SET last_page = ?, last_scroll_offset = ? WHERE id = ?",
+                arguments: [page, offset, paperId]
+            )
+        }
+    }
+
+    /// Updates the Session 17 reading state independently of reader recency.
+    public func setReadingStatus(paperId: String, status: String) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: "UPDATE paper SET reading_status = ? WHERE id = ?",
+                arguments: [status, paperId]
+            )
+        }
+    }
+
     /// True if this notebook or any descendant contains at least one paper (for the delete confirm).
     public func containsPapers(notebookId: String) throws -> Bool {
         try dbQueue.read { db in

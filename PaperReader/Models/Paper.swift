@@ -23,6 +23,9 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
     /// Non-nil when the paper is pinned (Session 12); the timestamp orders
     /// pinned items.
     public var pinnedAt: Date?
+    public var lastPage: Int?
+    public var lastScrollOffset: Double?
+    public var readingStatus: String
 
     public init(
         id: String = UUID().uuidString,
@@ -38,7 +41,10 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
         lastOpenedAt: Date? = nil,
         freeSpaceX: Double? = nil,
         freeSpaceY: Double? = nil,
-        pinnedAt: Date? = nil
+        pinnedAt: Date? = nil,
+        lastPage: Int? = nil,
+        lastScrollOffset: Double? = nil,
+        readingStatus: String = "unread"
     ) {
         self.id = id
         self.notebookId = notebookId
@@ -54,6 +60,9 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
         self.freeSpaceX = freeSpaceX
         self.freeSpaceY = freeSpaceY
         self.pinnedAt = pinnedAt
+        self.lastPage = lastPage
+        self.lastScrollOffset = lastScrollOffset
+        self.readingStatus = readingStatus
     }
 
     public static let databaseTableName = "paper"
@@ -73,5 +82,8 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
         case freeSpaceX = "free_space_x"
         case freeSpaceY = "free_space_y"
         case pinnedAt = "pinned_at"
+        case lastPage = "last_page"
+        case lastScrollOffset = "last_scroll_offset"
+        case readingStatus = "reading_status"
     }
 }

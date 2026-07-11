@@ -112,6 +112,7 @@ struct PDFReaderView: View {
                 }
             )
             .onDisappear {
+                model.saveResumePositionNow()
                 if focus.isActive, readerWindow != nil {
                     focus.exit()
                 }

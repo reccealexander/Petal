@@ -79,7 +79,12 @@ struct PDFKitWrapper: NSViewRepresentable {
     var isFocusModeActive = false
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(paperId: paper.id, model: model, repository: HighlightRepository(database: database))
+        Coordinator(
+            paper: paper,
+            model: model,
+            repository: HighlightRepository(database: database),
+            notebookRepository: NotebookRepository(database: database)
+        )
     }
 
     func makeNSView(context: Context) -> PDFView {
@@ -114,8 +119,15 @@ struct PDFKitWrapper: NSViewRepresentable {
         NotificationCenter.default.addObserver(
             coord, selector: #selector(Coordinator.pageChanged(_:)),
             name: .PDFViewPageChanged, object: pdfView)
+        if let clipView = pdfView.documentView?.enclosingScrollView?.contentView {
+            clipView.postsBoundsChangedNotifications = true
+            NotificationCenter.default.addObserver(
+                coord, selector: #selector(Coordinator.scrollChanged(_:)),
+                name: NSView.boundsDidChangeNotification, object: clipView)
+        }
         model.performAddHighlight = { [weak coord] color in coord?.addHighlight(color) }
         model.performGoToPage = { [weak coord] index in coord?.goToPage(index) }
+        model.performSaveResumePositionNow = { [weak coord] in coord?.saveResumePositionNow() }
         model.provideSelectionText = { [weak coord] in coord?.currentSelectionText() }
         model.provideSurroundingText = { [weak coord] in coord?.currentPageText() }
         model.providePageText = { [weak coord] in coord?.currentPageText() }
@@ -152,8 +164,10 @@ struct PDFKitWrapper: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject {
         let paperId: String
+        let paper: Paper
         let model: PDFReaderModel
         let repository: HighlightRepository
+        let notebookRepository: NotebookRepository
         weak var pdfView: AnnotatablePDFView?
         var tracked: [PDFAnnotation] = []
         var annotationToId: [PDFAnnotation: String] = [:]
@@ -170,10 +184,21 @@ struct PDFKitWrapper: NSViewRepresentable {
         /// themselves (Feature 2 — page-size opening).
         var didApplyInitialZoom = false
 
-        init(paperId: String, model: PDFReaderModel, repository: HighlightRepository) {
-            self.paperId = paperId
+        private lazy var resumeAutosave = AutosaveController(debounce: 1.0) { [weak self] in
+            self?.persistResumePosition()
+        }
+
+        init(
+            paper: Paper,
+            model: PDFReaderModel,
+            repository: HighlightRepository,
+            notebookRepository: NotebookRepository
+        ) {
+            self.paperId = paper.id
+            self.paper = paper
             self.model = model
             self.repository = repository
+            self.notebookRepository = notebookRepository
             super.init()
         }
 
@@ -192,6 +217,33 @@ struct PDFKitWrapper: NSViewRepresentable {
                   let page = pdfView.currentPage
             else { return }
             model.currentPageIndex = document.index(for: page)
+            resumeAutosave.schedule()
+        }
+
+        /// PDFKit does not emit a page change while scrolling within one page,
+        /// so bounds changes also feed the same lightweight debounce.
+        @objc func scrollChanged(_ note: Notification) {
+            resumeAutosave.schedule()
+        }
+
+        func saveResumePositionNow() {
+            resumeAutosave.cancel()
+            persistResumePosition()
+        }
+
+        private func persistResumePosition() {
+            guard let pdfView,
+                  let document = pdfView.document,
+                  let destination = pdfView.currentDestination,
+                  let destinationPage = destination.page
+            else { return }
+            let page = document.index(for: destinationPage)
+            guard page != NSNotFound else { return }
+            try? notebookRepository.setResumePosition(
+                paperId: paperId,
+                page: page,
+                offset: Double(destination.point.y)
+            )
         }
 
         /// Jumps the PDFView to the given page index (called from the
@@ -236,9 +288,18 @@ struct PDFKitWrapper: NSViewRepresentable {
             // this before opening a possibly-fresh reader window) now that
             // the initial zoom/layout has settled, so the resulting scroll
             // position sticks.
-            if let pageIndex = PendingReaderJump.take(paperId: paperId),
-               let page = document.page(at: pageIndex) {
+            if let requestedPage = PendingReaderJump.take(paperId: paperId),
+               let page = document.page(at: min(max(requestedPage, 0), document.pageCount - 1)) {
                 pdfView.go(to: page)
+            } else if let savedPage = paper.lastPage {
+                let pageIndex = min(max(savedPage, 0), document.pageCount - 1)
+                if let page = document.page(at: pageIndex) {
+                    let destination = PDFDestination(
+                        page: page,
+                        at: CGPoint(x: 0, y: paper.lastScrollOffset ?? 0)
+                    )
+                    pdfView.go(to: destination)
+                }
             }
         }
 

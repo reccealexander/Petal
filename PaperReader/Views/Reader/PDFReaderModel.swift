@@ -17,6 +17,11 @@ final class PDFReaderModel: ObservableObject {
     var performGoToPage: ((Int) -> Void)?
     func goToPage(_ index: Int) { performGoToPage?(index) }
 
+    /// Set by the coordinator so reader teardown can synchronously persist the
+    /// current PDF destination instead of waiting for the debounce timer.
+    var performSaveResumePositionNow: (() -> Void)?
+    func saveResumePositionNow() { performSaveResumePositionNow?() }
+
     /// Whether the page-thumbnail sidebar is shown. Defaults to visible.
     @Published var isThumbnailSidebarVisible: Bool = true
 
