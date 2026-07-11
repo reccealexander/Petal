@@ -97,6 +97,8 @@ private struct PaperListRow: View {
 
             Spacer(minLength: 0)
 
+            ReadingStatusBadge(status: ReadingStatus(rawValueOrUnread: paper.readingStatus))
+
             if hasNotes {
                 PaperNoteBadge()
             }

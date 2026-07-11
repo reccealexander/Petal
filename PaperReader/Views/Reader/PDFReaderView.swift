@@ -31,6 +31,7 @@ struct PDFReaderView: View {
     @State private var isTagPopoverPresented = false
     @State private var readerWindow: NSWindow?
     @State private var savedWindowAppearance: WindowAppearance?
+    @State private var readingStatus: ReadingStatus
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var snapController: WindowSnapController
@@ -40,6 +41,7 @@ struct PDFReaderView: View {
         self.paper = paper
         self.database = database
         self.isStandaloneWindow = isStandaloneWindow
+        _readingStatus = State(initialValue: ReadingStatus(rawValueOrUnread: paper.readingStatus))
         let document = PDFDocument(url: PDFImportService.fileURL(for: paper, in: database.papersDirectory))
         _thumbnailProvider = StateObject(wrappedValue: PageThumbnailProvider(
             paperId: paper.id,
@@ -93,6 +95,7 @@ struct PDFReaderView: View {
             .navigationTitle(paper.title ?? "Untitled")
             .onAppear {
                 updateLastOpened()
+                advanceReadingStatusIfNeeded()
                 bookmarkStore.load()
             }
             // Session 9 Part A (best effort, not GUI-verified): standalone
@@ -143,6 +146,21 @@ struct PDFReaderView: View {
                 }
 
                 if !focus.isActive {
+                    ToolbarItem(placement: .primaryAction) {
+                        Menu {
+                            ForEach(ReadingStatus.allCases) { status in
+                                Button {
+                                    setReadingStatus(status)
+                                } label: {
+                                    Label(status.label, systemImage: status.symbol)
+                                }
+                            }
+                        } label: {
+                            Label(readingStatus.label, systemImage: readingStatus.symbol)
+                        }
+                        .help("Reading status: \(readingStatus.label)")
+                    }
+
                     ToolbarItem(placement: .navigation) {
                         Button {
                             model.isThumbnailSidebarVisible.toggle()
@@ -275,6 +293,19 @@ struct PDFReaderView: View {
                 arguments: [Date(), paper.id]
             )
         }
+    }
+
+    private func advanceReadingStatusIfNeeded() {
+        guard paper.readingStatus == ReadingStatus.unread.rawValue else { return }
+        setReadingStatus(.inProgress)
+    }
+
+    private func setReadingStatus(_ status: ReadingStatus) {
+        guard (try? NotebookRepository(database: database).setReadingStatus(
+            paperId: paper.id,
+            status: status.rawValue
+        )) != nil else { return }
+        readingStatus = status
     }
 }
 

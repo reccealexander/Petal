@@ -231,11 +231,12 @@ private struct FreeSpacePaperCard: View {
                     .background(Color.secondary.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
 
-                if hasNotes {
-                    PaperNoteBadge()
+                HStack(spacing: 4) {
+                    ReadingStatusBadge(status: ReadingStatus(rawValueOrUnread: paper.readingStatus))
+                    if hasNotes { PaperNoteBadge() }
+                }
                         .padding(5)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                }
             }
 
             Text(paper.title ?? "Untitled")

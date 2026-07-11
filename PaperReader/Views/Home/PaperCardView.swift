@@ -70,11 +70,12 @@ struct PaperCardView: View {
                 thumbnailView
                     .frame(width: Self.cardWidth, height: Self.thumbnailHeight)
 
-                if hasNotes {
-                    PaperNoteBadge()
+                HStack(spacing: 4) {
+                    ReadingStatusBadge(status: ReadingStatus(rawValueOrUnread: paper.readingStatus))
+                    if hasNotes { PaperNoteBadge() }
+                }
                         .padding(6)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                }
 
                 HStack(spacing: 6) {
                     openNoteButton
@@ -119,6 +120,15 @@ struct PaperCardView: View {
         .contextMenu {
             Button(paper.pinnedAt == nil ? "Pin" : "Unpin") {
                 library.setPaperPinned(paperId: paper.id, pinned: paper.pinnedAt == nil)
+            }
+            Menu("Reading Status") {
+                ForEach(ReadingStatus.allCases) { status in
+                    Button {
+                        library.setReadingStatus(paperId: paper.id, status: status)
+                    } label: {
+                        Label(status.label, systemImage: status.symbol)
+                    }
+                }
             }
             Button("Edit Tags…") {
                 isEditingTags = true

@@ -204,6 +204,10 @@ private struct LibraryContentView: View {
 
             Divider()
 
+            ReadingStatusFilterView(library: library)
+
+            Divider()
+
             TagFilterView(library: library)
         }
         .navigationSplitViewColumnWidth(min: 200, ideal: 240)
@@ -524,6 +528,29 @@ private struct LibraryContentView: View {
                 )
             }
         }
+    }
+}
+
+struct ReadingStatusFilterView: View {
+    @ObservedObject var library: LibraryViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Reading Status")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            Picker("Reading Status", selection: $library.statusFilter) {
+                Text("All").tag(String?.none)
+                ForEach(ReadingStatus.allCases) { status in
+                    Text(status.label).tag(Optional(status.rawValue))
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .controlSize(.small)
+        }
+        .padding(8)
     }
 }
 

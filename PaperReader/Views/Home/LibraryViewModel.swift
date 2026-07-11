@@ -59,6 +59,8 @@ final class LibraryViewModel: ObservableObject {
     @Published var selection: LibrarySelection = .all { didSet { reloadPapers() } }
     /// Tag ids currently filtering the grid (AND semantics — see `reloadPapers`).
     @Published private(set) var activeTagIds: Set<String> = []
+    /// A single reading-status filter; nil includes every status.
+    @Published var statusFilter: String? = nil { didSet { reloadPapers() } }
     /// Raw text bound to the search field.
     @Published var searchText: String = ""
     /// Results of the last `runSearch()` call.
@@ -158,6 +160,10 @@ final class LibraryViewModel: ObservableObject {
             filtered = base.filter { allowed.contains($0.id) }
         }
 
+        if let statusFilter {
+            filtered = filtered.filter { $0.readingStatus == statusFilter }
+        }
+
         papers = pinnedFirst(filtered)
         var tagsMap: [String: [Tag]] = [:]
         for paper in papers {
@@ -165,6 +171,11 @@ final class LibraryViewModel: ObservableObject {
         }
         tagsByPaper = tagsMap
         reloadPapersWithNotes()
+    }
+
+    func setReadingStatus(paperId: String, status: ReadingStatus) {
+        try? notebookRepo.setReadingStatus(paperId: paperId, status: status.rawValue)
+        reloadPapers()
     }
 
     /// Recomputes the ids of papers that have at least one note.

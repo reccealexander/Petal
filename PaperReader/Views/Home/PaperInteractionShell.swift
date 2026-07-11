@@ -27,6 +27,15 @@ struct PaperInteractionShell<Content: View>: View {
                 Button(paper.pinnedAt == nil ? "Pin" : "Unpin") {
                     library.setPaperPinned(paperId: paper.id, pinned: paper.pinnedAt == nil)
                 }
+                Menu("Reading Status") {
+                    ForEach(ReadingStatus.allCases) { status in
+                        Button {
+                            library.setReadingStatus(paperId: paper.id, status: status)
+                        } label: {
+                            Label(status.label, systemImage: status.symbol)
+                        }
+                    }
+                }
                 Divider()
                 Button(idsToDelete.count > 1 ? "Delete \(idsToDelete.count) Papers…" : "Delete Paper…", role: .destructive) {
                     onRequestDelete(idsToDelete)
