@@ -32,6 +32,7 @@ struct PDFReaderView: View {
     @State private var readerWindow: NSWindow?
     @State private var savedWindowAppearance: WindowAppearance?
     @State private var readingStatus: ReadingStatus
+    @State private var isHighlightTaxonomyPresented = false
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var snapController: WindowSnapController
@@ -177,6 +178,20 @@ struct PDFReaderView: View {
                         Label("Notes", systemImage: "note.text")
                     }
                     .help("Open notes for this paper")
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isHighlightTaxonomyPresented = true
+                    } label: {
+                        Label("Highlights", systemImage: "list.bullet.rectangle")
+                    }
+                    .help("Highlights")
+                    .sheet(isPresented: $isHighlightTaxonomyPresented) {
+                        HighlightTaxonomyView(paper: paper, database: database) { page in
+                            model.goToPage(page)
+                        }
+                    }
                 }
 
                 // Session 9 Part A: explicit, reliable trigger for

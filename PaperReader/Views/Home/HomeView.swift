@@ -107,6 +107,7 @@ private struct LibraryContentView: View {
     /// alongside the detail pane. Only meaningful — and only enabled from the
     /// toolbar — while a notebook is selected in the sidebar.
     @State private var isNotebookClaudePanelVisible: Bool = false
+    @State private var isNotebookHighlightsPresented = false
 
     /// Click-vs-open selection state for the paper grid (Session 11). Kept
     /// here (rather than per-card) so shift-click ranges and ⌘O/⌘⌫ can see
@@ -143,6 +144,24 @@ private struct LibraryContentView: View {
             .animation(.easeInOut(duration: 0.2), value: isNotebookClaudePanelVisible)
         }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isNotebookHighlightsPresented = true
+                } label: {
+                    Label("Notebook Highlights", systemImage: "list.bullet.rectangle")
+                }
+                .help("Notebook Highlights")
+                .disabled(selectedNotebook == nil)
+                .sheet(isPresented: $isNotebookHighlightsPresented) {
+                    if let notebook = selectedNotebook {
+                        HighlightTaxonomyView(notebook: notebook, database: library.database) { paperId, page in
+                            PendingReaderJump.set(paperId: paperId, pageIndex: page)
+                            openWindow(value: paperId)
+                        }
+                    }
+                }
+            }
+
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     isNotebookClaudePanelVisible.toggle()
