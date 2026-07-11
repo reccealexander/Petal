@@ -58,14 +58,20 @@ final class PageThumbnailProvider: ObservableObject {
 
         Task.detached(priority: .userInitiated) { [weak self] in
             if let data = try? Data(contentsOf: url), let image = NSImage(data: data) {
-                await MainActor.run {
-                    self?.memoryCache[index] = image
-                    self?.pendingRequests.remove(index)
-                }
+                await self?.applyDiskThumbnail(image, forPage: index)
                 return
             }
             await self?.generateAndCache(index: index, url: url, size: size)
         }
+    }
+
+    /// Publishes a thumbnail loaded from the on-disk PNG cache. Runs on the
+    /// main actor (class isolation), so it can touch `memoryCache` and
+    /// `pendingRequests` directly — avoiding the `MainActor.run` closure that
+    /// Swift 6 strict concurrency rejects as a potential data race on `self`.
+    private func applyDiskThumbnail(_ image: NSImage, forPage index: Int) {
+        memoryCache[index] = image
+        pendingRequests.remove(index)
     }
 
     /// Renders the page thumbnail (must run on the main actor — PDFKit's
