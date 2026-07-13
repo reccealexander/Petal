@@ -49,12 +49,16 @@ final class SearchRepositoryTests: XCTestCase {
         let noteRepo = NoteRepository(database: manager)
 
         var note = try noteRepo.loadOrCreatePrimaryNote(forPaper: paper.id, title: nil)
+        // This mirrors NotesViewModel.saveNow(): RTF is canonical, while its
+        // plain-text extraction is saved in body for SearchIndex/FTS.
+        note.bodyRtf = Data("{\\rtf1\\ansi quantum tunneling notes}".utf8)
         note.body = "quantum tunneling notes"
         try noteRepo.save(note)
 
         let results = try searchRepo.search("quantum")
         let match = try XCTUnwrap(results.first { $0.entityType == .note })
         XCTAssertEqual(match.id, note.id)
+        XCTAssertEqual(try noteRepo.note(id: note.id)?.bodyRtf, note.bodyRtf)
     }
 
     func testCommentSaveIsIndexed() throws {

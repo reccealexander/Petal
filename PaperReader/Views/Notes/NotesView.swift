@@ -1,7 +1,7 @@
 import SwiftUI
 import PaperReaderCore
 
-/// The detached notes window for a paper: a split raw/preview markdown editor
+/// The detached notes window for a paper: an RTF-backed rich-text editor
 /// with debounced autosave and clickable highlight references (spec §4).
 struct NotesView: View {
     @StateObject private var model: NotesViewModel
@@ -37,38 +37,11 @@ struct NotesView: View {
             }
             .padding(8)
 
-            VSplitView {
-                TextEditor(text: $model.body)
-                    .font(.body.monospaced())
-                    .padding(8)
-                    .frame(minHeight: 160)
-                    .onChange(of: model.body) { _, _ in
-                        model.onBodyEdited()
-                    }
-
-                ScrollView {
-                    Text(renderedMarkdown)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                }
-                .frame(minHeight: 140)
-            }
+            RichTextEditorView(
+                text: $model.attributedText,
+                onEdit: model.onBodyEdited,
+                onOpenHighlight: openHighlight)
         }
-        .environment(\.openURL, OpenURLAction { url in
-            if let parsed = HighlightLink.parse(url) {
-                // Set the pending jump BEFORE opening the window: covers a
-                // fresh reader window (consumed on load). The notification
-                // below covers a reader window that's already open.
-                PendingReaderJump.set(paperId: model.paperId, pageIndex: parsed.pageIndex)
-                openWindow(value: model.paperId)
-                NotificationCenter.default.post(
-                    name: .readerJumpToHighlight, object: nil,
-                    userInfo: ["paperId": model.paperId, "pageIndex": parsed.pageIndex])
-                return .handled
-            }
-            return .systemAction
-        })
         .navigationTitle(model.paperTitle)
         .onAppear { model.load() }
         .onDisappear { model.flushSave() }
@@ -103,14 +76,13 @@ struct NotesView: View {
         }
     }
 
-    /// Renders `model.body` as inline markdown (links, emphasis, etc.), falling
-    /// back to the raw text if parsing fails.
-    private var renderedMarkdown: AttributedString {
-        (try? AttributedString(
-            markdown: model.body,
-            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace,
-                           failurePolicy: .returnPartiallyParsedIfPossible)
-        )) ?? AttributedString(model.body)
+    private func openHighlight(_ url: URL) {
+        guard let parsed = HighlightLink.parse(url) else { return }
+        PendingReaderJump.set(paperId: model.paperId, pageIndex: parsed.pageIndex)
+        openWindow(value: model.paperId)
+        NotificationCenter.default.post(
+            name: .readerJumpToHighlight, object: nil,
+            userInfo: ["paperId": model.paperId, "pageIndex": parsed.pageIndex])
     }
 
     /// A single-line, ~40-character preview of a highlight's selected text,

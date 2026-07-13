@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import AppKit
 import PaperReaderCore
 
 /// Drives the detached notes window for a single paper: loads (or lazily
@@ -7,8 +8,8 @@ import PaperReaderCore
 /// the user insert clickable references to the paper's highlights (spec §4).
 @MainActor
 final class NotesViewModel: ObservableObject {
-    /// The note's markdown source, bound to the raw editor.
-    @Published var body: String = ""
+    /// The note's rich-text source, bound to the AppKit editor.
+    @Published var attributedText = NSAttributedString(string: "")
     /// Ids of highlights referenced from `body`, persisted alongside it.
     @Published private(set) var linkedHighlightIds: [String] = []
     /// All highlights for this paper, offered in the "Insert Reference" menu.
@@ -40,7 +41,15 @@ final class NotesViewModel: ObservableObject {
     func load() {
         let loaded = try? noteRepo.loadOrCreatePrimaryNote(forPaper: paperId, title: "Notes — \(paperTitle)")
         note = loaded
-        body = loaded?.body ?? ""
+        if let data = loaded?.bodyRtf,
+           let decoded = try? NSAttributedString(
+               data: data,
+               options: [.documentType: NSAttributedString.DocumentType.rtf],
+               documentAttributes: nil) {
+            attributedText = decoded
+        } else {
+            attributedText = NSAttributedString(string: loaded?.body ?? "")
+        }
         linkedHighlightIds = NoteRepository.decodeLinkedIds(loaded?.linkedHighlightIds)
         highlights = (try? highlightRepo.highlights(forPaper: paperId)) ?? []
     }
@@ -55,16 +64,23 @@ final class NotesViewModel: ObservableObject {
         autosave.flush()
     }
 
-    /// Append a markdown reference to `highlight` to the note body and record its id.
+    /// Append a styled, clickable highlight reference and record its id.
     func insertReference(to highlight: Highlight) {
         let snippet = shortSnippet(from: highlight.selectedText)
         let url = HighlightLink.url(highlightId: highlight.id, pageIndex: highlight.page)
-        let md = "[p.\(highlight.page + 1): \"\(snippet)\"](\(url.absoluteString))"
-
-        if !body.isEmpty && !body.hasSuffix("\n") {
-            body += "\n"
+        let result = NSMutableAttributedString(attributedString: attributedText)
+        if result.length > 0 && !result.string.hasSuffix("\n") {
+            result.append(NSAttributedString(string: "\n"))
         }
-        body += md + "\n"
+        let label = "p.\(highlight.page + 1): \"\(snippet)\""
+        result.append(NSAttributedString(string: label, attributes: [
+            .link: url,
+            .foregroundColor: NSColor.controlAccentColor,
+            .backgroundColor: NSColor.controlAccentColor.withAlphaComponent(0.10),
+            .underlineStyle: NSUnderlineStyle.single.rawValue
+        ]))
+        result.append(NSAttributedString(string: "\n"))
+        attributedText = result
 
         if !linkedHighlightIds.contains(highlight.id) {
             linkedHighlightIds.append(highlight.id)
@@ -76,7 +92,10 @@ final class NotesViewModel: ObservableObject {
     /// Persists the current body / linked highlight ids to the loaded note.
     private func saveNow() {
         guard !deleted, var n = note else { return }
-        n.body = body
+        n.body = attributedText.string
+        n.bodyRtf = attributedText.rtf(
+            from: NSRange(location: 0, length: attributedText.length),
+            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf])
         n.linkedHighlightIds = NoteRepository.encodeLinkedIds(linkedHighlightIds)
         try? noteRepo.save(n)
         note = n

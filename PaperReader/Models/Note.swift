@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-/// A free-form markdown note, scoped to a paper and/or a notebook (both nullable,
+/// A free-form rich-text note, scoped to a paper and/or a notebook (both nullable,
 /// spec §1). `linkedHighlightIds` is a JSON array of highlight ids referenced by
 /// the note. Cascades from paper and notebook.
 public struct Note: Codable, Identifiable, Hashable, FetchableRecord, PersistableRecord {
@@ -9,8 +9,10 @@ public struct Note: Codable, Identifiable, Hashable, FetchableRecord, Persistabl
     public var paperId: String?
     public var notebookId: String?
     public var title: String?
-    /// Markdown body.
+    /// Plain-text extraction of `bodyRtf`, retained for full-text search.
     public var body: String
+    /// Rich-text body serialized as RTF.
+    public var bodyRtf: Data?
     /// JSON-encoded array of linked highlight ids.
     public var linkedHighlightIds: String?
     public var createdAt: Date
@@ -22,6 +24,7 @@ public struct Note: Codable, Identifiable, Hashable, FetchableRecord, Persistabl
         notebookId: String? = nil,
         title: String? = nil,
         body: String,
+        bodyRtf: Data? = nil,
         linkedHighlightIds: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date? = nil
@@ -31,6 +34,7 @@ public struct Note: Codable, Identifiable, Hashable, FetchableRecord, Persistabl
         self.notebookId = notebookId
         self.title = title
         self.body = body
+        self.bodyRtf = bodyRtf
         self.linkedHighlightIds = linkedHighlightIds
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -44,6 +48,7 @@ public struct Note: Codable, Identifiable, Hashable, FetchableRecord, Persistabl
         case notebookId = "notebook_id"
         case title
         case body
+        case bodyRtf = "body_rtf"
         case linkedHighlightIds = "linked_highlight_ids"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
