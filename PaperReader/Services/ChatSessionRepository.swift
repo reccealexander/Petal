@@ -68,7 +68,7 @@ public final class ChatSessionRepository {
                 sql: """
                     SELECT * FROM chat_session
                     WHERE scope = ? AND scope_id = ?
-                    ORDER BY (updated_at IS NULL), updated_at DESC, created_at DESC
+                    ORDER BY (updated_at IS NULL), updated_at DESC, created_at DESC, rowid DESC
                     """,
                 arguments: [scope.rawValue, scopeId]
             )
@@ -83,7 +83,7 @@ public final class ChatSessionRepository {
                 sql: """
                     SELECT * FROM chat_session
                     WHERE scope = ? AND scope_id = ?
-                    ORDER BY (updated_at IS NULL), updated_at DESC, created_at DESC
+                    ORDER BY (updated_at IS NULL), updated_at DESC, created_at DESC, rowid DESC
                     LIMIT 1
                     """,
                 arguments: [scope.rawValue, scopeId]
