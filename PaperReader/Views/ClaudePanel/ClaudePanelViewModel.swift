@@ -22,6 +22,8 @@ final class ClaudePanelViewModel: ObservableObject {
     @Published var streamingText: String = ""
     @Published var hasAPIKey: Bool = false
     @Published var includeContext: Bool = true
+    @Published private(set) var currentSessionId: String?
+    @Published private(set) var sessions: [ChatSession] = []
 
     private let scope: ClaudeChatScope
     private let papersDirectory: URL
@@ -91,11 +93,64 @@ final class ClaudePanelViewModel: ObservableObject {
         return false
     }
 
-    /// Called when the panel appears: restores the persisted conversation for
-    /// this scope and refreshes the API-key state.
+    /// Called when the panel appears: restores the most recent conversation
+    /// for this scope, creating an empty one when this is the first chat.
     func onAppear() {
         hasAPIKey = AIProviderPreference.effectiveProvider(keychain: keychain) != nil
-        messages = chatRepo.loadMessages(scope: chatScope, scopeId: scopeId)
+        refreshSessions()
+        if let session = sessions.first {
+            currentSessionId = session.id
+            messages = chatRepo.messages(inSessionId: session.id)
+        } else {
+            createAndSelectEmptySession()
+        }
+    }
+
+    /// Starts a separate conversation while preserving every prior session.
+    func newChat() {
+        guard !isStreaming else { return }
+        createAndSelectEmptySession()
+    }
+
+    /// Reopens a conversation from this scope's history.
+    func selectSession(_ id: String) {
+        guard !isStreaming, sessions.contains(where: { $0.id == id }) else { return }
+        currentSessionId = id
+        messages = chatRepo.messages(inSessionId: id)
+        streamingText = ""
+    }
+
+    /// Deletes one conversation. If it was open, falls back to the next most
+    /// recent conversation or creates a new empty session when none remain.
+    func deleteSession(_ id: String) {
+        guard !isStreaming, sessions.contains(where: { $0.id == id }) else { return }
+        try? chatRepo.deleteSession(id: id)
+        let deletedCurrentSession = currentSessionId == id
+        refreshSessions()
+
+        guard deletedCurrentSession else { return }
+        if let session = sessions.first {
+            currentSessionId = session.id
+            messages = chatRepo.messages(inSessionId: session.id)
+            streamingText = ""
+        } else {
+            createAndSelectEmptySession()
+        }
+    }
+
+    /// A compact history-menu label: first user prompt, or the creation date
+    /// for an empty session.
+    func displayTitle(for session: ChatSession) -> String {
+        if let firstUserMessage = ChatSessionRepository.decode(session.messages)
+            .first(where: { $0.role == "user" })?.content {
+            let collapsed = firstUserMessage
+                .split(whereSeparator: \Character.isWhitespace)
+                .joined(separator: " ")
+            if !collapsed.isEmpty {
+                return collapsed.count > 40 ? String(collapsed.prefix(40)) + "…" : collapsed
+            }
+        }
+        return "New chat · \(session.createdAt.formatted(date: .abbreviated, time: .shortened))"
     }
 
     /// Re-reads the API key state. Call when the panel reappears (e.g. after
@@ -135,8 +190,10 @@ final class ClaudePanelViewModel: ObservableObject {
             return
         }
 
+        guard let sessionId = ensureCurrentSession() else { return }
+
         messages.append(ChatMessage(role: "user", content: userMessage))
-        try? chatRepo.saveMessages(messages, scope: chatScope, scopeId: scopeId)
+        persistMessages(inSessionId: sessionId)
 
         // Rebuilt fresh on every send (rather than cached once per session) so
         // the system prompt always reflects the latest highlights/comments/
@@ -182,6 +239,29 @@ final class ClaudePanelViewModel: ObservableObject {
 
         streamingText = ""
         isStreaming = false
-        try? chatRepo.saveMessages(messages, scope: chatScope, scopeId: scopeId)
+        persistMessages(inSessionId: sessionId)
+    }
+
+    private func refreshSessions() {
+        sessions = chatRepo.sessions(scope: chatScope, scopeId: scopeId)
+    }
+
+    private func createAndSelectEmptySession() {
+        guard let session = try? chatRepo.createSession(scope: chatScope, scopeId: scopeId) else { return }
+        currentSessionId = session.id
+        messages = []
+        streamingText = ""
+        refreshSessions()
+    }
+
+    private func ensureCurrentSession() -> String? {
+        if let currentSessionId { return currentSessionId }
+        createAndSelectEmptySession()
+        return currentSessionId
+    }
+
+    private func persistMessages(inSessionId id: String) {
+        try? chatRepo.saveMessages(messages, inSessionId: id)
+        refreshSessions()
     }
 }

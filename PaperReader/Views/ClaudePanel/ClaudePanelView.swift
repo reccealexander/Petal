@@ -26,9 +26,9 @@ struct ReaderQuickActionSource {
 ///
 /// When opened for a paper that belongs to a notebook, a "Paper | Notebook"
 /// segmented switcher lets the user swap the active scope without losing
-/// either conversation: each scope persists under its own `ChatSession` row
-/// (`scope` + `scope_id`), so switching just swaps which `ClaudePanelViewModel`
-/// is active and reloads that scope's already-persisted messages.
+/// either conversation history: each scope has its own set of `ChatSession`
+/// rows (`scope` + `scope_id`), so switching swaps the active
+/// `ClaudePanelViewModel` and reloads that scope's most recent session.
 struct ClaudePanelView: View {
     private enum Mode {
         case paper
@@ -138,6 +138,7 @@ struct ClaudePanelView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
+            ChatSessionControls(viewModel: viewModel)
         }
         .padding(.horizontal, 10)
         .padding(.top, 8)
@@ -157,9 +158,8 @@ struct ClaudePanelView: View {
     }
 
     /// Swaps the active view-model to the requested scope and restores that
-    /// scope's persisted conversation. Because each scope is backed by its
-    /// own `ChatSession` row, the conversation we're switching away from is
-    /// untouched and will still be there if the user switches back.
+    /// scope's persisted conversation history. The sessions belonging to the
+    /// scope we're switching away from remain untouched.
     private func switchMode(to newMode: Mode) {
         switch newMode {
         case .paper:
@@ -172,6 +172,84 @@ struct ClaudePanelView: View {
         viewModel.onAppear()
         viewModel.refreshKeyState()
         onScopeChange?(viewModel.isNotebookScope)
+    }
+}
+
+/// Compact, provider-agnostic session controls shared by every panel host.
+/// Keeping these in `ClaudePanelView`'s header makes them available in the
+/// docked reader, Home notebook panel, and standalone Focus chat window.
+private struct ChatSessionControls: View {
+    @ObservedObject var viewModel: ClaudePanelViewModel
+    @State private var sessionIdPendingDelete: String?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Menu {
+                if viewModel.sessions.isEmpty {
+                    Text("No chats yet")
+                        .disabled(true)
+                } else {
+                    Section("Chat History") {
+                        ForEach(viewModel.sessions) { session in
+                            Button {
+                                viewModel.selectSession(session.id)
+                            } label: {
+                                if session.id == viewModel.currentSessionId {
+                                    Label(viewModel.displayTitle(for: session), systemImage: "checkmark")
+                                } else {
+                                    Text(viewModel.displayTitle(for: session))
+                                }
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    Menu("Delete Chat…", systemImage: "trash") {
+                        ForEach(viewModel.sessions) { session in
+                            Button(viewModel.displayTitle(for: session), role: .destructive) {
+                                sessionIdPendingDelete = session.id
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "clock.arrow.circlepath")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .disabled(viewModel.isStreaming)
+            .help("Chat History")
+
+            Button {
+                viewModel.newChat()
+            } label: {
+                Image(systemName: "square.and.pencil")
+            }
+            .buttonStyle(.plain)
+            .disabled(viewModel.isStreaming)
+            .help("New Chat")
+        }
+        .alert(
+            "Delete this chat?",
+            isPresented: Binding(
+                get: { sessionIdPendingDelete != nil },
+                set: { if !$0 { sessionIdPendingDelete = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                sessionIdPendingDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let id = sessionIdPendingDelete {
+                    viewModel.deleteSession(id)
+                }
+                sessionIdPendingDelete = nil
+            }
+        } message: {
+            Text("This permanently removes only this chat and its messages.")
+        }
     }
 }
 
