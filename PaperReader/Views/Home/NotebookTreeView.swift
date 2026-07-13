@@ -1,11 +1,10 @@
 import SwiftUI
 import PaperReaderCore
 
-/// Recursive notebook sidebar (spec §Session 5 Part A.1): "All Papers" and
-/// "Unfiled" special rows above a recursive notebook tree, all bound to a
-/// shared `LibraryViewModel`. Notebook rows and paper cards elsewhere in the
-/// app share one drag payload convention — a `String` of the form
-/// `"paper:<id>"` or `"notebook:<id>"` — which the drop targets below parse.
+/// Recursive notebook sidebar (spec §Session 5 Part A.1), bound to a shared
+/// `LibraryViewModel`. Notebook rows and paper cards elsewhere in the app share
+/// one drag payload convention — a `String` of the form `"paper:<id>"` or
+/// `"notebook:<id>"` — which the drop targets below parse.
 struct NotebookTreeView: View {
     @ObservedObject var viewModel: LibraryViewModel
 
@@ -16,12 +15,6 @@ struct NotebookTreeView: View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    specialRow(title: "All Papers", icon: "tray.full", selection: .all)
-                    specialRow(title: "Unfiled", icon: "tray", selection: .unfiled)
-
-                    Divider()
-                        .padding(.vertical, 6)
-
                     ForEach(viewModel.childNotebooks(of: nil)) { notebook in
                         NotebookRow(
                             notebook: notebook,
@@ -58,38 +51,6 @@ struct NotebookTreeView: View {
                 }
             }
         )
-    }
-
-    /// One of the two fixed rows above the notebook tree. Both are selectable
-    /// and both are drop targets that unfile a dropped paper (`toNotebook: nil`).
-    @ViewBuilder
-    private func specialRow(title: String, icon: String, selection: LibrarySelection) -> some View {
-        let isSelected = viewModel.selection == selection
-
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .foregroundStyle(.secondary)
-            Text(title)
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.15) : .clear)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            viewModel.selection = selection
-        }
-        .dropDestination(for: String.self) { items, _ in
-            for item in items {
-                if let paperId = item.strippingDragPrefix("paper:") {
-                    viewModel.movePaper(paperId: paperId, toNotebook: nil)
-                }
-            }
-            return true
-        }
     }
 
     // MARK: - Shared alert

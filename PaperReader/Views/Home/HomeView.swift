@@ -238,6 +238,7 @@ private struct LibraryContentView: View {
     private var mainModeSwitcher: some View {
         VStack(alignment: .leading, spacing: 2) {
             mainModeRow(title: "All Papers", icon: "doc.on.doc", mode: .papers)
+            unfiledModeRow
             mainModeRow(title: "All Folders", icon: "folder", mode: .folders)
             mainModeRow(title: "Notes", icon: "note.text", mode: .notes)
         }
@@ -247,7 +248,7 @@ private struct LibraryContentView: View {
 
     @ViewBuilder
     private func mainModeRow(title: String, icon: String, mode target: MainMode) -> some View {
-        let isSelected = mode == target
+        let isSelected = mode == target && (target != .papers || library.selection == .all)
         HStack(spacing: 6) {
             Image(systemName: icon)
                 .foregroundStyle(.secondary)
@@ -266,6 +267,37 @@ private struct LibraryContentView: View {
             if target == .papers {
                 library.selection = .all
             }
+        }
+    }
+
+    private var unfiledModeRow: some View {
+        let isSelected = mode == .papers && library.selection == .unfiled
+
+        return HStack(spacing: 6) {
+            Image(systemName: "tray")
+                .foregroundStyle(.secondary)
+            Text("Unfiled")
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.15) : .clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            mode = .papers
+            library.selection = .unfiled
+        }
+        .dropDestination(for: String.self) { items, _ in
+            for item in items where item.hasPrefix("paper:") {
+                library.movePaper(
+                    paperId: String(item.dropFirst("paper:".count)),
+                    toNotebook: nil
+                )
+            }
+            return true
         }
     }
 
