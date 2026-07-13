@@ -451,6 +451,57 @@ private struct ChatBubble: View {
 
     private var isUser: Bool { message.role == "user" }
 
+    var body: some View {
+        HStack {
+            if isUser { Spacer(minLength: 24) }
+
+            VStack(alignment: .leading, spacing: 4) {
+                if isUser {
+                    Text(message.content.isEmpty ? " " : message.content)
+                        .font(chatFont)
+                        .textSelection(.enabled)
+                } else {
+                    FormattedMarkdownText(
+                        content: message.content.isEmpty ? " " : message.content,
+                        baseFont: chatFont,
+                        baseFontSize: chatFontSize,
+                        customFontName: appearance.chatFontName
+                    )
+                }
+                if isStreaming {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.top, 2)
+                }
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isUser ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12))
+            )
+
+            if !isUser { Spacer(minLength: 24) }
+        }
+    }
+
+    private var chatFont: Font {
+        appearance.chatFontName == "System"
+            ? .system(size: chatFontSize)
+            : .custom(appearance.chatFontName, size: chatFontSize)
+    }
+
+    private var chatFontSize: CGFloat { CGFloat(appearance.chatFontSize) }
+}
+
+/// Shared rendering for assistant-style Markdown, fenced code, and SwiftMath.
+/// Callers supply their own base typography while the parsing and layout stay
+/// identical everywhere this content appears.
+struct FormattedMarkdownText: View {
+    let content: String
+    var baseFont: Font
+    var baseFontSize: CGFloat
+    var customFontName: String? = nil
+
     private enum MarkdownSegment: Identifiable {
         case text(Int, String)
         case code(Int, String)
@@ -486,36 +537,7 @@ private struct ChatBubble: View {
     }
 
     var body: some View {
-        HStack {
-            if isUser { Spacer(minLength: 24) }
-
-            VStack(alignment: .leading, spacing: 4) {
-                if isUser {
-                    Text(message.content.isEmpty ? " " : message.content)
-                        .font(chatFont)
-                        .textSelection(.enabled)
-                } else {
-                    assistantContent
-                }
-                if isStreaming {
-                    ProgressView()
-                        .controlSize(.small)
-                        .padding(.top, 2)
-                }
-            }
-            .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(isUser ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.12))
-            )
-
-            if !isUser { Spacer(minLength: 24) }
-        }
-    }
-
-    @ViewBuilder
-    private var assistantContent: some View {
-        let segments = markdownSegments(message.content.isEmpty ? " " : message.content)
+        let segments = markdownSegments(content)
         VStack(alignment: .leading, spacing: 8) {
             ForEach(segments) { segment in
                 switch segment {
@@ -582,19 +604,16 @@ private struct ChatBubble: View {
         }
     }
 
-    private var chatFont: Font {
-        appearance.chatFontName == "System"
-            ? .system(size: chatFontSize)
-            : .custom(appearance.chatFontName, size: chatFontSize)
-    }
+    private var chatFont: Font { baseFont }
 
-    private var chatFontSize: CGFloat { CGFloat(appearance.chatFontSize) }
+    private var chatFontSize: CGFloat { baseFontSize }
 
     private func headerFont(_ level: Int) -> Font {
         let size = headerFontSize(level)
-        return appearance.chatFontName == "System"
-            ? .system(size: size, weight: .bold)
-            : .custom(appearance.chatFontName, size: size).bold()
+        guard let customFontName, customFontName != "System" else {
+            return .system(size: size, weight: .bold)
+        }
+        return .custom(customFontName, size: size).bold()
     }
 
     private func headerFontSize(_ level: Int) -> CGFloat {

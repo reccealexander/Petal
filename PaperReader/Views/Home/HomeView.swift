@@ -99,6 +99,8 @@ private enum MainMode: Hashable {
 /// Hosts the `LibraryViewModel` and lays out the notebook sidebar, tag filters,
 /// paper grid and search results as a `NavigationSplitView`.
 private struct LibraryContentView: View {
+    private static let expandedSummaryIDsDefaultsKey = "expandedNotebookSummaryIDs"
+
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var appearance: AppearanceManager
     @StateObject private var library: LibraryViewModel
@@ -118,9 +120,14 @@ private struct LibraryContentView: View {
     /// or ⌘⌫'d while unselected) or the full multi-selection.
     @State private var idsPendingDeletion: Set<String>?
     @State private var isSearchOverlayVisible = false
+    @State private var expandedNotebookSummaryIDs: Set<String>
 
     init(database: DatabaseManager) {
         _library = StateObject(wrappedValue: LibraryViewModel(database: database))
+        let storedIDs = UserDefaults.standard.stringArray(
+            forKey: Self.expandedSummaryIDsDefaultsKey
+        ) ?? []
+        _expandedNotebookSummaryIDs = State(initialValue: Set(storedIDs))
     }
 
     var body: some View {
@@ -517,19 +524,58 @@ private struct LibraryContentView: View {
                     Text("No summary yet — it's generated automatically when papers are added to this notebook.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
-                } else {
+                } else if expandedNotebookSummaryIDs.contains(notebook.id) {
                     ScrollView {
-                        Text(summary)
-                            .font(.callout)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
+                        FormattedMarkdownText(
+                            content: summary,
+                            baseFont: .callout,
+                            baseFontSize: NSFont.preferredFont(forTextStyle: .callout).pointSize
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(maxHeight: 160)
+
+                    Button("Show less") {
+                        setNotebookSummaryExpanded(false, notebookID: notebook.id)
+                    }
+                    .buttonStyle(.link)
+                } else {
+                    Text(summaryPreview(summary))
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+
+                    Button("Show more") {
+                        setNotebookSummaryExpanded(true, notebookID: notebook.id)
+                    }
+                    .buttonStyle(.link)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding([.horizontal, .top], 20)
+    }
+
+    private func summaryPreview(_ summary: String) -> String {
+        let compact = summary
+            .split(whereSeparator: \Character.isWhitespace)
+            .joined(separator: " ")
+        guard compact.count > 200 else { return compact }
+        return String(compact.prefix(200)) + "…"
+    }
+
+    private func setNotebookSummaryExpanded(_ isExpanded: Bool, notebookID: String) {
+        if isExpanded {
+            expandedNotebookSummaryIDs.insert(notebookID)
+        } else {
+            expandedNotebookSummaryIDs.remove(notebookID)
+        }
+        UserDefaults.standard.set(
+            expandedNotebookSummaryIDs.sorted(),
+            forKey: Self.expandedSummaryIDsDefaultsKey
+        )
     }
 
     private var titleForSelection: String {
