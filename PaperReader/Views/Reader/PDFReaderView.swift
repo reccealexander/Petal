@@ -36,12 +36,14 @@ struct PDFReaderView: View {
     @State private var isFocusToolbarExpanded = false
     @State private var focusToolbarOffset: CGSize = .zero
     @State private var hasNote = false
+    @State private var aiPanelResizeStartWidth: Double?
     @StateObject private var accent = AccentColorProvider()
     @GestureState private var focusToolbarDragOffset: CGSize = .zero
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var snapController: WindowSnapController
     @EnvironmentObject private var focus: FocusModeController
+    @EnvironmentObject private var appearance: AppearanceManager
 
     init(paper: Paper, database: DatabaseManager, isStandaloneWindow: Bool = true) {
         self.paper = paper
@@ -91,7 +93,7 @@ struct PDFReaderView: View {
             // ClaudePanelView) rather than a literal NSSplitViewController
             // third pane — it slides in from the trailing edge when toggled.
             if !focus.isActive && model.isClaudePanelVisible {
-                Divider()
+                aiPanelResizeHandle
                 ClaudePanelView(paper: paper, database: database, readerSource: readerQuickActionSource)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
@@ -286,6 +288,40 @@ struct PDFReaderView: View {
                 }
                 }
             }
+    }
+
+    /// A wider hit target around a one-pixel separator. Since the panel sits
+    /// on the trailing edge, dragging right reduces its width.
+    private var aiPanelResizeHandle: some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.clear)
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(width: 1)
+        }
+        .contentShape(Rectangle())
+        .frame(width: 6)
+        .onHover { isHovering in
+            if isHovering {
+                NSCursor.resizeLeftRight.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    if aiPanelResizeStartWidth == nil {
+                        aiPanelResizeStartWidth = appearance.aiPanelWidth
+                    }
+                    guard let startWidth = aiPanelResizeStartWidth else { return }
+                    appearance.aiPanelWidth = min(max(startWidth - value.translation.width, 280), 620)
+                }
+                .onEnded { _ in
+                    aiPanelResizeStartWidth = nil
+                }
+        )
     }
 
     /// The sole piece of reader chrome retained in Focus mode. It starts as a
