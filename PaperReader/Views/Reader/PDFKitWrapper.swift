@@ -406,6 +406,7 @@ struct PDFKitWrapper: NSViewRepresentable {
 
             let pop = NSPopover()
             pop.behavior = .transient
+            pop.contentSize = CGSize(width: 320, height: 240)
             pop.contentViewController = NSHostingController(rootView: editor)
 
             let rectInView = pdfView.convert(annotation.bounds, from: page)
