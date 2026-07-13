@@ -5,6 +5,20 @@ import PaperReaderCore
 /// sets `performAddHighlight` once the PDFView exists; the toolbar calls `addHighlight`.
 @MainActor
 final class PDFReaderModel: ObservableObject {
+    enum SidebarMode: String, CaseIterable, Identifiable {
+        case thumbnails
+        case chapters
+
+        var id: Self { self }
+
+        var label: String {
+            switch self {
+            case .thumbnails: "Thumbnails"
+            case .chapters: "Chapters"
+            }
+        }
+    }
+
     @Published var hasSelection = false
     var performAddHighlight: ((HighlightColor) -> Void)?
     func addHighlight(_ color: HighlightColor) { performAddHighlight?(color) }
@@ -24,6 +38,9 @@ final class PDFReaderModel: ObservableObject {
 
     /// Whether the page-thumbnail sidebar is shown. Defaults to visible.
     @Published var isThumbnailSidebarVisible: Bool = true
+
+    /// The content shown in the reader's left sidebar.
+    @Published var sidebarMode: SidebarMode = .thumbnails
 
     /// Whether the Claude Q&A side panel is shown. Defaults to hidden — it
     /// slides in from the trailing edge when toggled from the toolbar.

@@ -45,6 +45,7 @@ struct PDFReaderView: View {
     @EnvironmentObject private var snapController: WindowSnapController
     @EnvironmentObject private var focus: FocusModeController
     @EnvironmentObject private var appearance: AppearanceManager
+    private let chapters: [PDFChapterEntry]
 
     init(paper: Paper, database: DatabaseManager, isStandaloneWindow: Bool = true) {
         self.paper = paper
@@ -52,6 +53,7 @@ struct PDFReaderView: View {
         self.isStandaloneWindow = isStandaloneWindow
         _readingStatus = State(initialValue: ReadingStatus(rawValueOrUnread: paper.readingStatus))
         let document = PDFDocument(url: PDFImportService.fileURL(for: paper, in: database.papersDirectory))
+        chapters = Self.chapterEntries(in: document)
         _thumbnailProvider = StateObject(wrappedValue: PageThumbnailProvider(
             paperId: paper.id,
             document: document,
@@ -75,7 +77,12 @@ struct PDFReaderView: View {
     var body: some View {
         HStack(spacing: 0) {
             if !focus.isActive && model.isThumbnailSidebarVisible && thumbnailProvider.pageCount > 0 {
-                PageThumbnailSidebar(provider: thumbnailProvider, model: model, bookmarkStore: bookmarkStore)
+                PageThumbnailSidebar(
+                    provider: thumbnailProvider,
+                    model: model,
+                    bookmarkStore: bookmarkStore,
+                    chapters: chapters
+                )
                     .transition(.move(edge: .leading).combined(with: .opacity))
                 Divider()
             }
@@ -119,6 +126,17 @@ struct PDFReaderView: View {
             }
             .animation(.easeInOut(duration: 0.2), value: model.isThumbnailSidebarVisible)
             .animation(.easeInOut(duration: 0.2), value: model.isClaudePanelVisible)
+            .background {
+                Group {
+                    Button(action: goToNextChapter) { EmptyView() }
+                        .keyboardShortcut(.rightArrow, modifiers: .command)
+                    Button(action: goToPreviousChapter) { EmptyView() }
+                        .keyboardShortcut(.leftArrow, modifiers: .command)
+                }
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
+            }
             .navigationTitle(paper.title ?? "Untitled")
             .onAppear {
                 updateLastOpened()
@@ -197,9 +215,9 @@ struct PDFReaderView: View {
                         Button {
                             model.isThumbnailSidebarVisible.toggle()
                         } label: {
-                            Label("Page Thumbnails", systemImage: "sidebar.left")
+                            Label("Reader Sidebar", systemImage: "sidebar.left")
                         }
-                        .help("Show or hide page thumbnails")
+                        .help("Show or hide the reader sidebar")
                     }
 
                 ToolbarItem(placement: .primaryAction) {
@@ -430,6 +448,35 @@ struct PDFReaderView: View {
 
     private func refreshHasNote() {
         hasNote = ((try? NoteRepository(database: database).primaryNote(forPaper: paper.id)) ?? nil) != nil
+    }
+
+    private func goToNextChapter() {
+        guard let chapter = chapters.first(where: { $0.pageIndex > model.currentPageIndex }) else { return }
+        model.goToPage(chapter.pageIndex)
+    }
+
+    private func goToPreviousChapter() {
+        guard let chapter = chapters.last(where: { $0.pageIndex < model.currentPageIndex }) else { return }
+        model.goToPage(chapter.pageIndex)
+    }
+
+    /// Extracts value-only top-level outline data while the PDF is being
+    /// opened. PDFKit objects are not retained as reader UI state.
+    private static func chapterEntries(in document: PDFDocument?) -> [PDFChapterEntry] {
+        guard let document, let root = document.outlineRoot else { return [] }
+
+        return (0..<root.numberOfChildren).compactMap { childIndex in
+            guard
+                let child = root.child(at: childIndex),
+                let page = child.destination?.page,
+                let rawLabel = child.label?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !rawLabel.isEmpty
+            else { return nil }
+
+            let pageIndex = document.index(for: page)
+            guard pageIndex >= 0, pageIndex < document.pageCount else { return nil }
+            return PDFChapterEntry(id: childIndex, label: rawLabel, pageIndex: pageIndex)
+        }
     }
 
     private func updateWindowAppearance(for window: NSWindow) {

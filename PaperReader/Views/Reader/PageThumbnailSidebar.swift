@@ -1,18 +1,48 @@
 import SwiftUI
 
-/// Collapsible left-side page thumbnail sidebar for the PDF reader, like
-/// Preview.app (Session 6 Part A): a scrollable column of page thumbnails,
-/// the current page highlighted and kept in sync as the user scrolls the
-/// main view, and click-a-thumbnail-to-jump.
+struct PDFChapterEntry: Identifiable {
+    let id: Int
+    let label: String
+    let pageIndex: Int
+}
+
+/// Collapsible left-side reader sidebar. It can show either page thumbnails
+/// or the PDF's top-level embedded outline entries.
 struct PageThumbnailSidebar: View {
     @ObservedObject var provider: PageThumbnailProvider
     @ObservedObject var model: PDFReaderModel
     @ObservedObject var bookmarkStore: PageBookmarkStore
+    let chapters: [PDFChapterEntry]
     @StateObject private var accent = AccentColorProvider()
+    @FocusState private var isThumbnailListFocused: Bool
 
     static let width: CGFloat = 180
 
     var body: some View {
+        VStack(spacing: 0) {
+            Picker("Sidebar", selection: $model.sidebarMode) {
+                ForEach(PDFReaderModel.SidebarMode.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(10)
+
+            Divider()
+
+            switch model.sidebarMode {
+            case .thumbnails:
+                thumbnails
+            case .chapters:
+                chapterList
+            }
+        }
+        .frame(width: Self.width)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var thumbnails: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 LazyVStack(spacing: 12) {
@@ -29,6 +59,7 @@ struct PageThumbnailSidebar: View {
                         )
                         .id(index)
                         .onTapGesture {
+                            isThumbnailListFocused = true
                             model.goToPage(index)
                         }
                         .onAppear {
@@ -45,8 +76,63 @@ struct PageThumbnailSidebar: View {
                 }
             }
         }
-        .frame(width: Self.width)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .focusable()
+        .focused($isThumbnailListFocused)
+        .onKeyPress(.downArrow) {
+            guard provider.pageCount > 0 else { return .ignored }
+            let target = min(provider.pageCount - 1, model.currentPageIndex + 1)
+            model.goToPage(target)
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            guard provider.pageCount > 0 else { return .ignored }
+            let target = max(0, model.currentPageIndex - 1)
+            model.goToPage(target)
+            return .handled
+        }
+    }
+
+    @ViewBuilder
+    private var chapterList: some View {
+        if chapters.isEmpty {
+            ContentUnavailableView(
+                "No Chapters",
+                systemImage: "list.bullet.indent",
+                description: Text("No chapter data available for this paper")
+            )
+            .padding(12)
+        } else {
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(chapters) { chapter in
+                        Button {
+                            model.goToPage(chapter.pageIndex)
+                        } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(chapter.label)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                Spacer(minLength: 0)
+                                Text("\(chapter.pageIndex + 1)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .background(
+                            chapter.pageIndex == model.currentPageIndex
+                                ? accent.color.opacity(0.16)
+                                : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 5)
+                        )
+                    }
+                }
+                .padding(8)
+            }
+        }
     }
 }
 
