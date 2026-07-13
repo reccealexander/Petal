@@ -1,12 +1,17 @@
 import Foundation
 import Security
 
-/// Stores and retrieves the user's Google AI Studio API key in the macOS
-/// Keychain. Never persists the key in UserDefaults or plaintext on disk
-/// (spec §5).
+/// Stores and retrieves provider API keys in independent macOS Keychain
+/// entries. Never persists a key in UserDefaults or plaintext on disk.
 public final class KeychainService: @unchecked Sendable {
-    private static let service = "com.paperreader.googleaistudio"
     private static let account = "api-key"
+
+    private static func service(for provider: AIProvider) -> String {
+        switch provider {
+        case .claude: "com.paperreader.anthropic"
+        case .gemini: "com.paperreader.googleaistudio"
+        }
+    }
 
     public init() {}
 
@@ -16,10 +21,10 @@ public final class KeychainService: @unchecked Sendable {
     }
 
     /// Stores `key`, replacing any existing stored value.
-    public func setAPIKey(_ key: String) throws {
+    public func setAPIKey(_ key: String, for provider: AIProvider = .gemini) throws {
         // Remove any existing item first so re-saving doesn't collide with
         // an existing entry for the same service/account.
-        deleteAPIKey()
+        deleteAPIKey(for: provider)
 
         guard let data = key.data(using: .utf8) else {
             throw KeychainError.unexpectedStatus(errSecParam)
@@ -27,7 +32,7 @@ public final class KeychainService: @unchecked Sendable {
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: Self.service(for: provider),
             kSecAttrAccount as String: Self.account,
             kSecValueData as String: data,
             // Stable, non-UI-gated accessibility class: the item is usable
@@ -45,10 +50,10 @@ public final class KeychainService: @unchecked Sendable {
     }
 
     /// Returns the stored API key, or `nil` if none has been set.
-    public func apiKey() -> String? {
+    public func apiKey(for provider: AIProvider = .gemini) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: Self.service(for: provider),
             kSecAttrAccount as String: Self.account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
@@ -63,10 +68,10 @@ public final class KeychainService: @unchecked Sendable {
     }
 
     /// Deletes the stored API key, if any. A missing item is not an error.
-    public func deleteAPIKey() {
+    public func deleteAPIKey(for provider: AIProvider = .gemini) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: Self.service(for: provider),
             kSecAttrAccount as String: Self.account
         ]
         let status = SecItemDelete(query as CFDictionary)
@@ -78,10 +83,12 @@ public final class KeychainService: @unchecked Sendable {
     /// Intentionally does not request `kSecReturnData`: existence checks should
     /// not decrypt the secret or trigger Keychain ACL prompts. Actual Gemini
     /// calls use `apiKey()` when they need the key data.
-    public var hasAPIKey: Bool {
+    public var hasAPIKey: Bool { hasAPIKey(for: .gemini) }
+
+    public func hasAPIKey(for provider: AIProvider) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: Self.service(for: provider),
             kSecAttrAccount as String: Self.account,
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecReturnData as String: false
