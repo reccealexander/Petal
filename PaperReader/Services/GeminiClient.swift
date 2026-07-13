@@ -44,9 +44,9 @@ public enum GeminiClientError: LocalizedError {
 /// has no official Gemini SDK, so this speaks the wire protocol directly via
 /// `URLSession`, mirroring the shape of the app's previous Anthropic client.
 public final class GeminiClient: @unchecked Sendable {
-    /// Default to Google's current Flash-tier model so normal app usage stays
-    /// within the least restrictive AI Studio tier available to free users.
-    private static let model = "gemini-2.5-flash"
+    /// Google retires Gemini model names on a roughly quarterly cadence; this
+    /// constant is the one line to change for the next model swap.
+    private static let model = "gemini-3-flash"
     private static let endpoint = URL(
         string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):streamGenerateContent?alt=sse"
     )!
