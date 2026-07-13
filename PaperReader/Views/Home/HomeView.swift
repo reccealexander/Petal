@@ -247,6 +247,17 @@ private struct LibraryContentView: View {
     private var mainModeSwitcher: some View {
         VStack(alignment: .leading, spacing: 2) {
             mainModeRow(title: "All Papers", icon: "doc.on.doc", mode: .papers)
+                .dropDestination(for: String.self) { items, _ in
+                    var handledDrop = false
+                    for item in items where item.hasPrefix("paper:") {
+                        library.movePaper(
+                            paperId: String(item.dropFirst("paper:".count)),
+                            toNotebook: nil
+                        )
+                        handledDrop = true
+                    }
+                    return handledDrop
+                }
             unfiledModeRow
             mainModeRow(title: "All Folders", icon: "folder", mode: .folders)
             mainModeRow(title: "Notes", icon: "note.text", mode: .notes)

@@ -13,19 +13,27 @@ struct NotebookTreeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(viewModel.childNotebooks(of: nil)) { notebook in
-                        NotebookRow(
-                            notebook: notebook,
-                            viewModel: viewModel,
-                            activeDialog: $activeDialog,
-                            dialogText: $dialogText
-                        )
+            GeometryReader { geometry in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(viewModel.childNotebooks(of: nil)) { notebook in
+                            NotebookRow(
+                                notebook: notebook,
+                                viewModel: viewModel,
+                                activeDialog: $activeDialog,
+                                dialogText: $dialogText
+                            )
+                        }
+
+                        rootDropZone
                     }
+                    .frame(
+                        minHeight: max(0, geometry.size.height - 8),
+                        alignment: .top
+                    )
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
                 }
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
             }
 
             Divider()
@@ -51,6 +59,26 @@ struct NotebookTreeView: View {
                 }
             }
         )
+    }
+
+    /// A distinct target below the notebook rows lets a nested notebook be
+    /// moved back to the root. Keeping the target on this flexible open-space
+    /// view (rather than the enclosing scroll view) leaves row drops handled
+    /// by each `NotebookRow`.
+    private var rootDropZone: some View {
+        Color.clear
+            .frame(maxWidth: .infinity, minHeight: 80, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .dropDestination(for: String.self) { items, _ in
+                var handledDrop = false
+                for item in items {
+                    if let notebookId = item.strippingDragPrefix("notebook:") {
+                        viewModel.moveNotebook(id: notebookId, toParent: nil)
+                        handledDrop = true
+                    }
+                }
+                return handledDrop
+            }
     }
 
     // MARK: - Shared alert
