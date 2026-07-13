@@ -45,10 +45,15 @@ public enum GeminiClientError: LocalizedError {
 /// `URLSession`, mirroring the shape of the app's previous Anthropic client.
 public final class GeminiClient: @unchecked Sendable {
     /// Google retires pinned Gemini model names on a roughly quarterly cadence
-    /// (this app has been bitten twice), so we track the `-latest` alias, which
-    /// Google repoints to the current flagship flash model. To pin a specific
-    /// version instead, set an explicit name here (e.g. "gemini-3.5-flash").
-    private static let model = "gemini-flash-latest"
+    /// (this app has been bitten twice), so we track a `-latest` alias that
+    /// Google repoints as versions roll over. We use the *lite* alias, not the
+    /// flagship `gemini-flash-latest`: the flagship currently resolves to a
+    /// Gemini 3 "thinking" model that reasons for tens of seconds before
+    /// emitting any bytes (and is frequently 503-overloaded), which tripped the
+    /// URLSession inactivity timeout and left the chat spinner stuck. The lite
+    /// model streams its first token in ~1s and finishes well inside the
+    /// timeout. To pin a specific version instead, set an explicit name here.
+    private static let model = "gemini-flash-lite-latest"
     private static let endpoint = URL(
         string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):streamGenerateContent?alt=sse"
     )!
