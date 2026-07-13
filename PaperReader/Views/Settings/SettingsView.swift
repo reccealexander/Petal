@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import PaperReaderCore
 
 /// Preferences screen (spec §5), opened via **⌘,** / App menu → "Preferences…"
@@ -194,6 +195,27 @@ private struct AppearanceSettingsView: View {
             Text("Shows how far you have read on library cards and rows.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            Divider()
+
+            Text("Chat font")
+                .font(.headline)
+
+            Picker("Font family", selection: $appearance.chatFontName) {
+                Text("System").tag("System")
+                ForEach(NSFontManager.shared.availableFontFamilies, id: \.self) { family in
+                    Text(family).tag(family)
+                }
+            }
+
+            HStack(spacing: 12) {
+                Text("Size")
+                Slider(value: $appearance.chatFontSize, in: 10...28, step: 1)
+                Text("\(Int(appearance.chatFontSize)) pt")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 42, alignment: .trailing)
+            }
 
             Text("Appearance changes apply across all windows. Transparency affects only the main library window.")
                 .font(.caption)

@@ -21,6 +21,7 @@ final class ClaudePanelViewModel: ObservableObject {
     @Published var isStreaming: Bool = false
     @Published var streamingText: String = ""
     @Published var hasAPIKey: Bool = false
+    @Published var includeContext: Bool = true
 
     private let scope: ClaudeChatScope
     private let papersDirectory: URL
@@ -110,7 +111,7 @@ final class ClaudePanelViewModel: ObservableObject {
         let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
         inputText = ""
-        await stream(userMessage: text)
+        await stream(userMessage: text, includeContext: includeContext)
     }
 
     /// Runs a quick action: inserts `message` (already composed by the view
@@ -122,14 +123,14 @@ final class ClaudePanelViewModel: ObservableObject {
     func runQuickAction(_ message: String) async {
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !isStreaming else { return }
-        await stream(userMessage: text)
+        await stream(userMessage: text, includeContext: true)
     }
 
     /// Appends `userMessage` to the conversation, persists it, then streams
     /// Claude's reply and persists again once it completes. Shared by `send()`
     /// (typed input) and `runQuickAction(_:)` (pre-composed quick-action
     /// prompts) so there's exactly one streaming/persist implementation.
-    private func stream(userMessage: String) async {
+    private func stream(userMessage: String, includeContext: Bool) async {
         guard let provider = AIProviderPreference.effectiveProvider(keychain: keychain) else {
             return
         }
@@ -146,12 +147,16 @@ final class ClaudePanelViewModel: ObservableObject {
         // any PDF reads) to finish before we hand off to the async stream, to
         // avoid "sending risks data races" under strict concurrency.
         let system: String
-        switch scope {
-        case .paper(let paper):
-            let pdfURL = PDFImportService.fileURL(for: paper, in: papersDirectory)
-            system = contextBuilder.buildPaperSystemPrompt(paper: paper, pdfURL: pdfURL)
-        case .notebook(let notebook):
-            system = contextBuilder.buildNotebookSystemPrompt(notebook: notebook)
+        if includeContext {
+            switch scope {
+            case .paper(let paper):
+                let pdfURL = PDFImportService.fileURL(for: paper, in: papersDirectory)
+                system = contextBuilder.buildPaperSystemPrompt(paper: paper, pdfURL: pdfURL)
+            case .notebook(let notebook):
+                system = contextBuilder.buildNotebookSystemPrompt(notebook: notebook)
+            }
+        } else {
+            system = "You are a helpful assistant."
         }
         isStreaming = true
         streamingText = ""

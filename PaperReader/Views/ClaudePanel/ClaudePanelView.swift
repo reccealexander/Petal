@@ -37,7 +37,6 @@ struct ClaudePanelView: View {
 
     @State private var viewModel: ClaudePanelViewModel
     @State private var mode: Mode
-    @EnvironmentObject private var appearance: AppearanceManager
 
     private let database: DatabaseManager
     private let paper: Paper?
@@ -45,13 +44,20 @@ struct ClaudePanelView: View {
     /// Live PDF-selection/highlight context for the reader's quick actions;
     /// `nil` when there's no reader (e.g. opened from the Home window).
     private let readerSource: ReaderQuickActionSource?
+    private let onScopeChange: ((Bool) -> Void)?
 
     /// Paper-scope entry point (used by `PDFReaderView`). Looks up the
     /// paper's containing notebook (if any) so the header can offer the
     /// paper/notebook switcher; unfiled papers (`notebookId == nil`) just show
     /// the paper indicator with no switcher. `readerSource` (optional) wires
     /// the paper/notebook quick actions to the live PDF selection/highlight.
-    init(paper: Paper, database: DatabaseManager, readerSource: ReaderQuickActionSource? = nil) {
+    init(
+        paper: Paper,
+        database: DatabaseManager,
+        readerSource: ReaderQuickActionSource? = nil,
+        initialNotebookScope: Bool = false,
+        onScopeChange: ((Bool) -> Void)? = nil
+    ) {
         self.database = database
         self.paper = paper
         let notebook: Notebook? = paper.notebookId.flatMap { notebookId in
@@ -59,8 +65,12 @@ struct ClaudePanelView: View {
         }
         self.containingNotebook = notebook
         self.readerSource = readerSource
-        _mode = State(initialValue: .paper)
-        _viewModel = State(initialValue: ClaudePanelViewModel(paper: paper, database: database))
+        self.onScopeChange = onScopeChange
+        let startsInNotebook = initialNotebookScope && notebook != nil
+        _mode = State(initialValue: startsInNotebook ? .notebook : .paper)
+        _viewModel = State(initialValue: startsInNotebook
+            ? ClaudePanelViewModel(notebook: notebook!, database: database)
+            : ClaudePanelViewModel(paper: paper, database: database))
     }
 
     /// Notebook-scope entry point (used by the Home window). No current
@@ -72,6 +82,7 @@ struct ClaudePanelView: View {
         self.paper = nil
         self.containingNotebook = notebook
         self.readerSource = nil
+        self.onScopeChange = nil
         _mode = State(initialValue: .notebook)
         _viewModel = State(initialValue: ClaudePanelViewModel(notebook: notebook, database: database))
     }
@@ -108,10 +119,10 @@ struct ClaudePanelView: View {
                 notebookName: containingNotebook?.name
             )
         }
-        .frame(width: appearance.aiPanelWidth)
         .onAppear {
             viewModel.onAppear()
             viewModel.refreshKeyState()
+            onScopeChange?(viewModel.isNotebookScope)
         }
     }
 
@@ -160,6 +171,7 @@ struct ClaudePanelView: View {
         }
         viewModel.onAppear()
         viewModel.refreshKeyState()
+        onScopeChange?(viewModel.isNotebookScope)
     }
 }
 
@@ -301,8 +313,17 @@ private struct ClaudePanelContentView: View {
 
             Divider()
             quickActionsBar
+            contextToggle
             inputBar
         }
+    }
+
+    private var contextToggle: some View {
+        Toggle("Include \(viewModel.scopeKind.lowercased()) context", isOn: $viewModel.includeContext)
+            .toggleStyle(.switch)
+            .font(.caption)
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
     }
 
     private var inputBar: some View {
@@ -346,6 +367,7 @@ private struct ClaudePanelContentView: View {
 private struct ChatBubble: View {
     let message: ChatMessage
     var isStreaming: Bool = false
+    @EnvironmentObject private var appearance: AppearanceManager
 
     private var isUser: Bool { message.role == "user" }
 
@@ -367,6 +389,7 @@ private struct ChatBubble: View {
             VStack(alignment: .leading, spacing: 4) {
                 if isUser {
                     Text(message.content.isEmpty ? " " : message.content)
+                        .font(chatFont)
                         .textSelection(.enabled)
                 } else {
                     assistantContent
@@ -395,6 +418,7 @@ private struct ChatBubble: View {
                 switch segment {
                 case .text(_, let content):
                     Text(inlineMarkdown(from: readableListMarkers(in: content)))
+                        .font(chatFont)
                         .textSelection(.enabled)
                 case .code(_, let content):
                     Text(content)
@@ -409,6 +433,12 @@ private struct ChatBubble: View {
                 }
             }
         }
+    }
+
+    private var chatFont: Font {
+        appearance.chatFontName == "System"
+            ? .system(size: appearance.chatFontSize)
+            : .custom(appearance.chatFontName, size: appearance.chatFontSize)
     }
 
     private func inlineMarkdown(from content: String) -> AttributedString {

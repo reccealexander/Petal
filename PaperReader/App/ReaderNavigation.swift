@@ -6,6 +6,11 @@ struct NotesWindowID: Hashable, Codable {
     let paperId: String
 }
 
+struct ChatWindowID: Hashable, Codable {
+    let paperId: String
+    let isNotebookScope: Bool
+}
+
 extension Notification.Name {
     /// Posted to ask the open reader window for a paper to jump to a page.
     /// userInfo: ["paperId": String, "pageIndex": Int].

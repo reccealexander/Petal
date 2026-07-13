@@ -37,6 +37,7 @@ struct PDFReaderView: View {
     @State private var focusToolbarOffset: CGSize = .zero
     @State private var hasNote = false
     @State private var aiPanelResizeStartWidth: Double?
+    @State private var draggingPanelWidth: Double?
     @StateObject private var accent = AccentColorProvider()
     @GestureState private var focusToolbarDragOffset: CGSize = .zero
     @Environment(\.openWindow) private var openWindow
@@ -94,7 +95,14 @@ struct PDFReaderView: View {
             // third pane — it slides in from the trailing edge when toggled.
             if !focus.isActive && model.isClaudePanelVisible {
                 aiPanelResizeHandle
-                ClaudePanelView(paper: paper, database: database, readerSource: readerQuickActionSource)
+                ClaudePanelView(
+                    paper: paper,
+                    database: database,
+                    readerSource: readerQuickActionSource,
+                    initialNotebookScope: model.chatScopeIsNotebook,
+                    onScopeChange: { model.chatScopeIsNotebook = $0 }
+                )
+                    .frame(width: livePanelWidth)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
@@ -316,12 +324,20 @@ struct PDFReaderView: View {
                         aiPanelResizeStartWidth = appearance.aiPanelWidth
                     }
                     guard let startWidth = aiPanelResizeStartWidth else { return }
-                    appearance.aiPanelWidth = min(max(startWidth - value.translation.width, 280), 620)
+                    draggingPanelWidth = min(max(startWidth - value.translation.width, 280), 620)
                 }
                 .onEnded { _ in
+                    if let draggingPanelWidth {
+                        appearance.aiPanelWidth = draggingPanelWidth
+                    }
+                    draggingPanelWidth = nil
                     aiPanelResizeStartWidth = nil
                 }
         )
+    }
+
+    private var livePanelWidth: Double {
+        draggingPanelWidth ?? appearance.aiPanelWidth
     }
 
     /// The sole piece of reader chrome retained in Focus mode. It starts as a
@@ -352,6 +368,17 @@ struct PDFReaderView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Open notes for this paper")
+
+                Button {
+                    openWindow(value: ChatWindowID(
+                        paperId: paper.id,
+                        isNotebookScope: model.chatScopeIsNotebook
+                    ))
+                } label: {
+                    Image(systemName: "sparkles")
+                }
+                .buttonStyle(.plain)
+                .help("Open chat")
 
                 Button {
                     isHighlightTaxonomyPresented = true

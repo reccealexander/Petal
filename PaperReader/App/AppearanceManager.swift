@@ -12,6 +12,8 @@ final class AppearanceManager: ObservableObject {
     private static let windowTransparencyDefaultsKey = "windowTransparency"
     private static let showReadingProgressDefaultsKey = "showReadingProgress"
     private static let aiPanelWidthDefaultsKey = "aiPanelWidth"
+    private static let chatFontNameDefaultsKey = "chatFontName"
+    private static let chatFontSizeDefaultsKey = "chatFontSize"
 
     enum Appearance: String, CaseIterable, Identifiable {
         case system
@@ -66,6 +68,23 @@ final class AppearanceManager: ObservableObject {
         }
     }
 
+    @Published var chatFontName: String {
+        didSet {
+            UserDefaults.standard.set(chatFontName, forKey: Self.chatFontNameDefaultsKey)
+        }
+    }
+
+    @Published var chatFontSize: Double {
+        didSet {
+            let clamped = min(max(chatFontSize, 10), 28)
+            if clamped != chatFontSize {
+                chatFontSize = clamped
+                return
+            }
+            UserDefaults.standard.set(chatFontSize, forKey: Self.chatFontSizeDefaultsKey)
+        }
+    }
+
     /// Linear percentage-to-alpha mapping used by the main window chrome.
     var chromeAlpha: CGFloat { CGFloat(windowTransparency / 100.0) }
 
@@ -91,6 +110,15 @@ final class AppearanceManager: ObservableObject {
             self.aiPanelWidth = min(
                 max(UserDefaults.standard.double(forKey: Self.aiPanelWidthDefaultsKey), 280),
                 620
+            )
+        }
+        self.chatFontName = UserDefaults.standard.string(forKey: Self.chatFontNameDefaultsKey) ?? "System"
+        if UserDefaults.standard.object(forKey: Self.chatFontSizeDefaultsKey) == nil {
+            self.chatFontSize = 13
+        } else {
+            self.chatFontSize = min(
+                max(UserDefaults.standard.double(forKey: Self.chatFontSizeDefaultsKey), 10),
+                28
             )
         }
         apply()

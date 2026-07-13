@@ -167,6 +167,14 @@ struct PaperReaderApp: App {
                 .environmentObject(focusController)
         }
 
+        WindowGroup(for: ChatWindowID.self) { $chatID in
+            ChatWindowRoot(chatID: chatID)
+                .environmentObject(appState)
+                .environmentObject(appearance)
+                .environmentObject(snapController)
+                .environmentObject(focusController)
+        }
+
         // Standard Settings scene — macOS automatically binds this to the
         // "PaperReader > Preferences…" menu item and the ⌘, shortcut.
         Settings {
@@ -224,6 +232,28 @@ private struct NotesWindowRoot: View {
         } else {
             Text("Note unavailable").foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Resolves the requested reader chat scope while reusing its persisted session.
+private struct ChatWindowRoot: View {
+    @EnvironmentObject private var appState: AppState
+    let chatID: ChatWindowID?
+
+    var body: some View {
+        Group {
+            if let chatID, let db = appState.database,
+               let paper = try? db.dbQueue.read({ try Paper.fetchOne($0, key: chatID.paperId) }) {
+                ClaudePanelView(
+                    paper: paper,
+                    database: db,
+                    initialNotebookScope: chatID.isNotebookScope
+                )
+            } else {
+                Text("Chat unavailable").foregroundStyle(.secondary)
+            }
+        }
+        .frame(minWidth: 360, minHeight: 420)
     }
 }
 

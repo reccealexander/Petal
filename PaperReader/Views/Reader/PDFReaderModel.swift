@@ -29,6 +29,9 @@ final class PDFReaderModel: ObservableObject {
     /// slides in from the trailing edge when toggled from the toolbar.
     @Published var isClaudePanelVisible: Bool = false
 
+    /// Last scope selected in the reader chat, carried into Focus-mode chat windows.
+    @Published var chatScopeIsNotebook: Bool = false
+
     // MARK: - Quick-action context providers (Session 7 Part C)
     //
     // Set by `PDFKitWrapper.Coordinator` in `makeNSView`, same pattern as

@@ -100,6 +100,7 @@ private enum MainMode: Hashable {
 /// paper grid and search results as a `NavigationSplitView`.
 private struct LibraryContentView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var appearance: AppearanceManager
     @StateObject private var library: LibraryViewModel
     @Environment(\.openWindow) private var openWindow
     @State private var mode: MainMode = .papers
@@ -137,6 +138,7 @@ private struct LibraryContentView: View {
                 if isNotebookClaudePanelVisible, let notebook = selectedNotebook {
                     Divider()
                     ClaudePanelView(notebook: notebook, database: library.database)
+                        .frame(width: appearance.aiPanelWidth)
                         .id(notebook.id)
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
