@@ -224,6 +224,8 @@ private struct FreeSpacePaperCard: View {
     let onDragEnded: (CGPoint) -> Void
 
     @State private var dragOffset: CGSize = .zero
+    @Environment(\.openWindow) private var openWindow
+    @StateObject private var accent = AccentColorProvider()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -235,10 +237,28 @@ private struct FreeSpacePaperCard: View {
 
                 HStack(spacing: 4) {
                     ReadingStatusBadge(status: ReadingStatus(rawValueOrUnread: paper.readingStatus))
-                    if hasNotes { PaperNoteBadge() }
                 }
                         .padding(5)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+
+                Button {
+                    openWindow(value: NotesWindowID(paperId: paper.id))
+                } label: {
+                    Image(systemName: "note.text")
+                        .font(.caption)
+                        .foregroundStyle(hasNotes ? accent.color : Color.secondary)
+                        .padding(6)
+                        .background(Circle().fill(.ultraThinMaterial))
+                }
+                .buttonStyle(.plain)
+                .help("Open Note")
+                .padding(5)
+
+                if paper.pinnedAt != nil {
+                    PinBadge()
+                        .padding(5)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
             }
             .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
 

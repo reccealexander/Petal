@@ -27,6 +27,7 @@ struct PaperCardView: View {
     @State private var isEditingTags = false
     @State private var newTagText = ""
     @State private var isConfirmingDeleteNote = false
+    @StateObject private var accent = AccentColorProvider()
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
 
@@ -72,7 +73,6 @@ struct PaperCardView: View {
 
                 HStack(spacing: 4) {
                     ReadingStatusBadge(status: ReadingStatus(rawValueOrUnread: paper.readingStatus))
-                    if hasNotes { PaperNoteBadge() }
                 }
                         .padding(6)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
@@ -82,6 +82,12 @@ struct PaperCardView: View {
                     tagEditButton
                 }
                 .padding(6)
+
+                if paper.pinnedAt != nil {
+                    PinBadge()
+                        .padding(6)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
             }
 
             Text(paper.title ?? "Untitled")
@@ -167,6 +173,7 @@ struct PaperCardView: View {
         } label: {
             Image(systemName: "note.text")
                 .font(.caption)
+                .foregroundStyle(hasNotes ? accent.color : Color.secondary)
                 .padding(6)
                 .background(Circle().fill(.ultraThinMaterial))
         }
