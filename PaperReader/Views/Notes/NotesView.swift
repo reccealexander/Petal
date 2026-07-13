@@ -6,11 +6,17 @@ import PaperReaderCore
 struct NotesView: View {
     @StateObject private var model: NotesViewModel
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismiss) private var dismiss
     @State private var isConfirmingDelete = false
+    private let onClosePane: (() -> Void)?
 
-    init(paperId: String, paperTitle: String, database: DatabaseManager) {
+    init(
+        paperId: String,
+        paperTitle: String,
+        database: DatabaseManager,
+        onClosePane: (() -> Void)? = nil
+    ) {
         _model = StateObject(wrappedValue: NotesViewModel(paperId: paperId, paperTitle: paperTitle, database: database))
+        self.onClosePane = onClosePane
     }
 
     var body: some View {
@@ -34,6 +40,20 @@ struct NotesView: View {
                 .fixedSize()
 
                 Spacer()
+
+                if let onClosePane {
+                    Button {
+                        // Flush synchronously before requesting joined-window
+                        // teardown so a pending debounced edit is preserved.
+                        model.flushSave()
+                        onClosePane()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Close Note Pane")
+                    .accessibilityLabel("Close Note Pane")
+                }
             }
             .padding(8)
 
@@ -69,7 +89,7 @@ struct NotesView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) {
                 model.deleteNote()
-                dismiss()
+                NotesPaneCloseRequest.post(paperId: model.paperId)
             }
         } message: {
             Text("This can't be undone.")

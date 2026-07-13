@@ -250,7 +250,6 @@ struct NotesLibraryView: View {
     @StateObject private var viewModel: NotesLibraryViewModel
     /// The id of the note pending a delete confirmation, if any (drives the alert).
     @State private var noteIdPendingDelete: String?
-    @Environment(\.dismissWindow) private var dismissWindow
 
     init(database: DatabaseManager) {
         _viewModel = StateObject(wrappedValue: NotesLibraryViewModel(database: database))
@@ -295,7 +294,7 @@ struct NotesLibraryView: View {
                     let linkedPaperId = viewModel.paperId(forNoteId: id)
                     viewModel.deleteNote(id: id)
                     if let linkedPaperId {
-                        dismissWindow(value: NotesWindowID(paperId: linkedPaperId))
+                        NotesPaneCloseRequest.post(paperId: linkedPaperId)
                     }
                 }
                 noteIdPendingDelete = nil

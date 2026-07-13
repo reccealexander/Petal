@@ -215,6 +215,7 @@ private struct ReaderWindow: View {
 private struct NotesWindowRoot: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var snapController: WindowSnapController
+    @Environment(\.dismiss) private var dismiss
     let notesID: NotesWindowID?
 
     var body: some View {
@@ -228,6 +229,10 @@ private struct NotesWindowRoot: View {
                 }
                 .onDisappear {
                     snapController.unregister(ref: .notes(paperId: paper.id))
+                }
+                .onReceive(NotificationCenter.default.publisher(for: .notesPaneShouldClose)) { notification in
+                    guard NotesPaneCloseRequest.paperId(from: notification) == paper.id else { return }
+                    dismiss()
                 }
         } else {
             Text("Note unavailable").foregroundStyle(.secondary)

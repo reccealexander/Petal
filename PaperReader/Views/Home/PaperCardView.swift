@@ -29,7 +29,6 @@ struct PaperCardView: View {
     @State private var isConfirmingDeleteNote = false
     @StateObject private var accent = AccentColorProvider()
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
     @EnvironmentObject private var appearance: AppearanceManager
 
     init(
@@ -155,7 +154,7 @@ struct PaperCardView: View {
             Button("Delete", role: .destructive) {
                 _ = try? NoteRepository(database: library.database).deletePrimaryNote(forPaper: paper.id)
                 library.reloadPapers()
-                dismissWindow(value: NotesWindowID(paperId: paper.id))
+                NotesPaneCloseRequest.post(paperId: paper.id)
             }
         } message: {
             Text("This can't be undone.")

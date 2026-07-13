@@ -50,6 +50,10 @@ private struct JoinedWindowView: View {
                 .help("Split back into separate windows")
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .notesPaneShouldClose)) { notification in
+            guard let paperId = NotesPaneCloseRequest.paperId(from: notification) else { return }
+            closeNotesPane(paperId: paperId)
+        }
     }
 
     @ViewBuilder
@@ -62,7 +66,14 @@ private struct JoinedWindowView: View {
                 } else { unavailable }
             case .notes(let paperId):
                 if let paper = paper(paperId) {
-                    NotesView(paperId: paper.id, paperTitle: paper.title ?? "Untitled", database: database)
+                    NotesView(
+                        paperId: paper.id,
+                        paperTitle: paper.title ?? "Untitled",
+                        database: database,
+                        onClosePane: {
+                            NotesPaneCloseRequest.post(paperId: paper.id)
+                        }
+                    )
                 } else { unavailable }
             case .main:
                 HomeView()
@@ -83,6 +94,19 @@ private struct JoinedWindowView: View {
         reopen(pair.left)
         reopen(pair.right)
         dismiss()
+    }
+
+    /// Removes a matching notes pane while preserving the other pane by
+    /// reopening it in its normal standalone scene.
+    private func closeNotesPane(paperId: String) {
+        let notesRef = JoinablePaneRef.notes(paperId: paperId)
+        if pair.left == notesRef {
+            reopen(pair.right)
+            dismiss()
+        } else if pair.right == notesRef {
+            reopen(pair.left)
+            dismiss()
+        }
     }
 
     private func reopen(_ ref: JoinablePaneRef) {
