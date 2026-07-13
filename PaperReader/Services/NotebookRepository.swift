@@ -11,10 +11,12 @@ public enum NotebookError: Error {
 /// papers filed under them. The view/rendering layer must never touch the DB
 /// directly — it goes through this repository instead (spec §1).
 public final class NotebookRepository {
+    private let database: DatabaseManager
     private let dbQueue: DatabaseQueue
 
     /// Creates the repository, reading its storage handle from `database`.
     public init(database: DatabaseManager) {
+        self.database = database
         self.dbQueue = database.dbQueue
     }
 
@@ -57,7 +59,7 @@ public final class NotebookRepository {
     /// Creates a new notebook (optionally nested under `parentId`) and persists it.
     @discardableResult
     public func create(name: String, parentId: String?) throws -> Notebook {
-        var notebook = Notebook(name: name, parentId: parentId)
+        let notebook = Notebook(name: name, parentId: parentId)
         try dbQueue.write { db in
             try notebook.insert(db)
         }
@@ -108,11 +110,83 @@ public final class NotebookRepository {
 
     /// Move a paper into a notebook (or nil for Unfiled).
     public func movePaper(paperId: String, toNotebook notebookId: String?) throws {
-        try dbQueue.write { db in
+        let affectedNotebookIds = try dbQueue.write { db -> Set<String> in
+            guard let paperRow = try Row.fetchOne(
+                db,
+                sql: "SELECT notebook_id FROM paper WHERE id = ?",
+                arguments: [paperId]
+            ) else { return [] }
+            let oldNotebookId: String? = paperRow["notebook_id"]
+            guard oldNotebookId != notebookId else { return [] }
+
+            var affected = try Self.notebookAndAncestorIds(for: oldNotebookId, in: db)
+            affected.formUnion(try Self.notebookAndAncestorIds(for: notebookId, in: db))
             try db.execute(
                 sql: "UPDATE paper SET notebook_id = ? WHERE id = ?",
                 arguments: [notebookId, paperId]
             )
+            return affected
+        }
+        requestSummaryChecks(for: affectedNotebookIds)
+    }
+
+    /// Deletes paper rows and their non-FK search/chat bookkeeping in one
+    /// transaction, then requests summary checks for every affected notebook.
+    /// The returned rows let the caller remove the corresponding managed files.
+    @discardableResult
+    public func deletePapers(ids: Set<String>) throws -> [Paper] {
+        guard !ids.isEmpty else { return [] }
+
+        let result = try dbQueue.write { db -> (papers: [Paper], notebookIds: Set<String>) in
+            var papers: [Paper] = []
+            var affectedNotebookIds: Set<String> = []
+            for id in ids {
+                guard let paper = try Paper.fetchOne(db, key: id) else { continue }
+                papers.append(paper)
+                affectedNotebookIds.formUnion(
+                    try Self.notebookAndAncestorIds(for: paper.notebookId, in: db)
+                )
+                try db.execute(
+                    sql: "DELETE FROM chat_session WHERE scope = 'paper' AND scope_id = ?",
+                    arguments: [id]
+                )
+                try db.execute(
+                    sql: "DELETE FROM search_index WHERE paper_id = ?",
+                    arguments: [id]
+                )
+                try db.execute(sql: "DELETE FROM paper WHERE id = ?", arguments: [id])
+            }
+            return (papers, affectedNotebookIds)
+        }
+        requestSummaryChecks(for: result.notebookIds)
+        return result.papers
+    }
+
+    /// Includes ancestors because `papersUnder` gives every ancestor a
+    /// recursive paper set that changes when a descendant gains/loses a paper.
+    private static func notebookAndAncestorIds(for notebookId: String?, in db: Database) throws -> Set<String> {
+        guard let notebookId else { return [] }
+        return try String.fetchSet(
+            db,
+            sql: """
+            WITH RECURSIVE ancestors(id) AS (
+                SELECT id FROM notebook WHERE id = ?
+                UNION ALL
+                SELECT n.parent_id
+                FROM notebook n JOIN ancestors a ON n.id = a.id
+                WHERE n.parent_id IS NOT NULL
+            )
+            SELECT id FROM ancestors
+            """,
+            arguments: [notebookId]
+        )
+    }
+
+    private func requestSummaryChecks(for notebookIds: Set<String>) {
+        guard !notebookIds.isEmpty else { return }
+        let summaryService = NotebookSummaryService(database: database)
+        for notebookId in notebookIds {
+            summaryService.notebookPaperSetChanged(notebookId: notebookId)
         }
     }
 

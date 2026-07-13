@@ -9,13 +9,15 @@ public struct Notebook: Codable, Identifiable, Hashable, FetchableRecord, Persis
     public var parentId: String?
     public var createdAt: Date
     public var sortOrder: Int
-    /// The cached AI-generated summary of this notebook's papers/highlights/
-    /// notes (Session 10), or nil if none has been generated yet.
+    /// The cached AI-generated summary of this notebook's papers.
     public var aiSummary: String?
-    /// The notebook's total note count at the time `aiSummary` was last
-    /// generated — compared against the current count to decide whether a
-    /// regenerate is due (see `NotebookSummaryService`).
+    /// Legacy summary-generation bookkeeping retained for schema compatibility.
+    /// Note changes no longer trigger or guard notebook summaries.
     public var aiSummaryNoteCount: Int
+    /// SHA-256 of the sorted paper-ID set used to generate `aiSummary`.
+    public var aiSummaryPaperIdsHash: String?
+    /// Number of papers represented by `aiSummary`, for diagnostics/UI clarity.
+    public var aiSummaryPaperCount: Int
     /// Non-nil when the notebook is pinned (Session 12); the timestamp orders
     /// pinned items.
     public var pinnedAt: Date?
@@ -28,6 +30,8 @@ public struct Notebook: Codable, Identifiable, Hashable, FetchableRecord, Persis
         sortOrder: Int = 0,
         aiSummary: String? = nil,
         aiSummaryNoteCount: Int = 0,
+        aiSummaryPaperIdsHash: String? = nil,
+        aiSummaryPaperCount: Int = 0,
         pinnedAt: Date? = nil
     ) {
         self.id = id
@@ -37,6 +41,8 @@ public struct Notebook: Codable, Identifiable, Hashable, FetchableRecord, Persis
         self.sortOrder = sortOrder
         self.aiSummary = aiSummary
         self.aiSummaryNoteCount = aiSummaryNoteCount
+        self.aiSummaryPaperIdsHash = aiSummaryPaperIdsHash
+        self.aiSummaryPaperCount = aiSummaryPaperCount
         self.pinnedAt = pinnedAt
     }
 
@@ -50,6 +56,8 @@ public struct Notebook: Codable, Identifiable, Hashable, FetchableRecord, Persis
         case sortOrder = "sort_order"
         case aiSummary = "ai_summary"
         case aiSummaryNoteCount = "ai_summary_note_count"
+        case aiSummaryPaperIdsHash = "ai_summary_paper_ids_hash"
+        case aiSummaryPaperCount = "ai_summary_paper_count"
         case pinnedAt = "pinned_at"
     }
 }

@@ -177,7 +177,7 @@ public final class ContextBuilder {
 
     /// Concatenates every page's extracted text, separated by blank lines.
     /// Returns an empty string if the document can't be opened.
-    private static func extractText(from pdfURL: URL) -> String {
+    static func extractText(from pdfURL: URL) -> String {
         guard let document = PDFDocument(url: pdfURL) else {
             return ""
         }

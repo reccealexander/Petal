@@ -501,8 +501,8 @@ private struct LibraryContentView: View {
     /// AI-generated summary header shown above the paper grid whenever a
     /// notebook is selected (Session 10, Feature 3). Reads the cached
     /// `Notebook.aiSummary` — never triggers generation itself; that happens
-    /// automatically (via `NotebookSummaryService`) whenever a paper-linked
-    /// note in this notebook is created or loaded. Refreshes live because
+    /// automatically (via `NotebookSummaryService`) whenever this notebook's
+    /// paper set changes. Refreshes live because
     /// `LibraryViewModel` reloads `notebooks` on `.notebookSummaryDidUpdate`.
     @ViewBuilder
     private func notebookSummaryHeader(_ notebook: Notebook) -> some View {
@@ -514,7 +514,7 @@ private struct LibraryContentView: View {
 
                 let summary = notebook.aiSummary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if summary.isEmpty {
-                    Text("No summary yet — it's generated automatically when you add notes to papers in this notebook.")
+                    Text("No summary yet — it's generated automatically when papers are added to this notebook.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 } else {

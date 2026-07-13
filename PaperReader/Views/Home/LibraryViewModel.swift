@@ -365,23 +365,7 @@ final class LibraryViewModel: ObservableObject {
     func deletePapers(ids: Set<String>) {
         guard !ids.isEmpty else { return }
 
-        // Snapshot the Paper rows first so we still have file paths to clean
-        // up after the DB rows are gone.
-        let papersToDelete = papers.filter { ids.contains($0.id) }
-
-        try? database.dbQueue.write { db in
-            for id in ids {
-                try db.execute(
-                    sql: "DELETE FROM chat_session WHERE scope = 'paper' AND scope_id = ?",
-                    arguments: [id]
-                )
-                try db.execute(
-                    sql: "DELETE FROM search_index WHERE paper_id = ?",
-                    arguments: [id]
-                )
-                try db.execute(sql: "DELETE FROM paper WHERE id = ?", arguments: [id])
-            }
-        }
+        let papersToDelete = (try? notebookRepo.deletePapers(ids: ids)) ?? []
 
         let fileManager = FileManager.default
         let papersDirectory = database.papersDirectory

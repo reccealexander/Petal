@@ -82,6 +82,7 @@ public final class DatabaseManager {
         V7AddReadingProgress.register(in: &migrator)
         V8AddFurthestPageRead.register(in: &migrator)
         V9AddNoteRTF.register(in: &migrator)
+        V10AddNotebookSummaryPaperSet.register(in: &migrator)
         return migrator
     }
 

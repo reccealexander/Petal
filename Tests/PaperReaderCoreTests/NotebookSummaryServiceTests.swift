@@ -3,38 +3,32 @@ import GRDB
 @testable import PaperReaderCore
 
 final class NotebookSummaryServiceTests: XCTestCase {
-    func testCountGuardRegeneratesOnlyAfterGenuineNoteIncrease() {
+    func testPaperSetGuardDetectsSameCountSwapButIgnoresOrdering() {
+        let originalHash = NotebookSummaryService.paperSetSignature(for: ["paper-a", "paper-b"])
+
         XCTAssertFalse(
             NotebookSummaryService.shouldRegenerate(
-                currentNoteCount: 3,
-                summarizedNoteCount: 3
-            ),
-            "Editing or autosaving existing notes must not regenerate a summary"
-        )
-        XCTAssertFalse(
-            NotebookSummaryService.shouldRegenerate(
-                currentNoteCount: 2,
-                summarizedNoteCount: 3
-            ),
-            "Deleting a note must not regenerate a summary"
+                currentPaperIDs: ["paper-b", "paper-a"],
+                summarizedPaperIDsHash: originalHash
+            )
         )
         XCTAssertTrue(
             NotebookSummaryService.shouldRegenerate(
-                currentNoteCount: 4,
-                summarizedNoteCount: 3
+                currentPaperIDs: ["paper-a", "paper-c"],
+                summarizedPaperIDsHash: originalHash
             ),
-            "A newly inserted note must cross the persisted count guard"
+            "Replacing one paper with another must regenerate even when the count is unchanged"
         )
     }
 
-    func testSummaryNoteCountPersistsAndDecodesFromNotebookColumn() throws {
+    func testSummaryPaperSetMetadataPersistsAndDecodes() throws {
         let manager = try DatabaseManager.inMemory()
         let notebook = Notebook(name: "Rate-limit regression")
         try manager.dbQueue.write { db in
             try notebook.insert(db)
             try db.execute(
-                sql: "UPDATE notebook SET ai_summary = ?, ai_summary_note_count = ? WHERE id = ?",
-                arguments: ["Cached summary", 7, notebook.id]
+                sql: "UPDATE notebook SET ai_summary = ?, ai_summary_paper_ids_hash = ?, ai_summary_paper_count = ? WHERE id = ?",
+                arguments: ["Cached summary", "stable-hash", 2, notebook.id]
             )
         }
 
@@ -43,6 +37,7 @@ final class NotebookSummaryServiceTests: XCTestCase {
         }
 
         XCTAssertEqual(reloaded?.aiSummary, "Cached summary")
-        XCTAssertEqual(reloaded?.aiSummaryNoteCount, 7)
+        XCTAssertEqual(reloaded?.aiSummaryPaperIdsHash, "stable-hash")
+        XCTAssertEqual(reloaded?.aiSummaryPaperCount, 2)
     }
 }

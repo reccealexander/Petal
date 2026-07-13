@@ -37,7 +37,6 @@ final class NotesLibraryViewModel: ObservableObject {
     private let noteRepo: NoteRepository
     private let notebookRepo: NotebookRepository
     private let tagRepo: TagRepository
-    private let summaryService: NotebookSummaryService
 
     private var papersById: [String: Paper] = [:]
     private var notebooksById: [String: Notebook] = [:]
@@ -48,7 +47,6 @@ final class NotesLibraryViewModel: ObservableObject {
         self.noteRepo = NoteRepository(database: database)
         self.notebookRepo = NotebookRepository(database: database)
         self.tagRepo = TagRepository(database: database)
-        self.summaryService = NotebookSummaryService(database: database)
         refresh()
     }
 
@@ -227,12 +225,6 @@ final class NotesLibraryViewModel: ObservableObject {
         }
         refresh()
         selectedNoteId = note.id
-        if let paperId {
-            // Fire-and-forget: regenerates the containing notebook's AI
-            // summary if this net-new note pushes its count past the last
-            // generated one (Session 10, Feature 3).
-            summaryService.noteCreated(forPaperId: paperId)
-        }
         return note
     }
 
