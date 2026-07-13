@@ -8,9 +8,12 @@ final class FocusModeController: ObservableObject {
 
     private var hiddenApps: [NSRunningApplication] = []
     private var hiddenWindows: [NSWindow] = []
+    private weak var focusedWindow: NSWindow?
 
     func enter(focusedWindow: NSWindow?) {
         guard !isActive else { return }
+
+        self.focusedWindow = focusedWindow
 
         hiddenApps.removeAll()
         for app in NSWorkspace.shared.runningApplications
@@ -43,11 +46,13 @@ final class FocusModeController: ObservableObject {
         hiddenApps.removeAll()
 
         for window in hiddenWindows where !window.isVisible {
-            window.orderFront(nil)
+            window.orderBack(nil)
         }
         hiddenWindows.removeAll()
 
         isActive = false
         NSApp.activate(ignoringOtherApps: true)
+        focusedWindow?.makeKeyAndOrderFront(nil)
+        focusedWindow = nil
     }
 }
