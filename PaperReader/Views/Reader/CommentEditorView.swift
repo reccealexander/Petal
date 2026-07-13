@@ -89,13 +89,17 @@ struct CommentEditorView: View {
         .padding(16)
         .frame(width: popoverSize.width, height: popoverSize.height)
         .overlay(alignment: .bottomTrailing) {
-            Image(systemName: "arrow.down.right")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 14, height: 14)
+            ZStack {
+                Rectangle()
+                    .fill(Color.clear)
+                Image(systemName: "arrow.down.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+                .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
                 .help("Drag to resize")
-                .gesture(
+                .highPriorityGesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
                             if resizeStartSize == nil {
@@ -117,7 +121,7 @@ struct CommentEditorView: View {
                             resizeStartSize = nil
                         }
                 )
-                .padding(1)
+                .zIndex(1)
         }
         .onAppear { DispatchQueue.main.async { editorFocused = true } }
     }

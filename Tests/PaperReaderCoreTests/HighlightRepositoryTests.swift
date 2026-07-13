@@ -87,6 +87,31 @@ final class HighlightRepositoryTests: XCTestCase {
         XCTAssertFalse(commentedIds.contains(highlightTwo.id))
     }
 
+    func testDeleteCommentLeavesHighlightAndRemovesCommentIndicator() throws {
+        let paper = try insertPaper()
+        let highlight = makeHighlight(paperId: paper.id, page: 0, text: "highlight remains")
+        try repo.insertHighlights([highlight])
+        let comment = try repo.upsertComment(
+            highlightId: highlight.id,
+            paperId: paper.id,
+            body: "comment to delete"
+        )
+
+        try repo.deleteComment(forHighlight: highlight.id)
+
+        XCTAssertNil(try repo.comment(forHighlight: highlight.id))
+        XCTAssertEqual(try repo.highlights(forPaper: paper.id).map(\.id), [highlight.id])
+        XCTAssertFalse(try repo.commentedHighlightIds(forPaper: paper.id).contains(highlight.id))
+        let indexedCommentCount = try manager.dbQueue.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM search_index WHERE entity_id = ?",
+                arguments: [comment.id]
+            )
+        }
+        XCTAssertEqual(indexedCommentCount, 0)
+    }
+
     func testDeleteHighlightCascadesItsComment() throws {
         let paper = try insertPaper()
         let highlight = makeHighlight(paperId: paper.id, page: 0, text: "text to delete")

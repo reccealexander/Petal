@@ -420,11 +420,35 @@ struct PDFKitWrapper: NSViewRepresentable {
                 onCancel: { [weak self] in
                     self?.popover?.close()
                 },
-                onDelete: nil
+                onDelete: existing == nil ? nil : { [weak self] in
+                    guard let self else { return }
+
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = "Delete this comment?"
+                    alert.informativeText = "This leaves the highlight; only the comment is removed."
+                    alert.addButton(withTitle: "Delete")
+                    alert.buttons.first?.hasDestructiveAction = true
+                    alert.addButton(withTitle: "Cancel")
+
+                    guard alert.runModal() == .alertFirstButtonReturn else { return }
+                    do {
+                        try self.repository.deleteComment(forHighlight: highlightId)
+                        self.popover?.close()
+                        self.rehydrate()
+                    } catch {
+                        // Keep the editor open if deletion fails so the user's
+                        // comment is not made to appear deleted when it is not.
+                    }
+                }
             )
 
             let pop = NSPopover()
             pop.behavior = .transient
+            // SwiftUI updates the hosting view's intrinsic size on every
+            // resize-handle drag tick. Popover animation otherwise queues
+            // animated size/re-anchoring updates and makes the drag stutter.
+            pop.animates = false
             pop.contentSize = CGSize(width: 320, height: 240)
             pop.contentViewController = NSHostingController(rootView: editor)
 
