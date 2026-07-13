@@ -10,14 +10,16 @@ public extension Notification.Name {
 /// Generates and caches an AI summary of a notebook's papers/highlights/
 /// comments/notes via the user's selected AI provider.
 ///
-/// The entry point, `noteCreated(forPaperId:)`, is meant to be called
-/// whenever a paper-scoped note is created OR loaded (including on ordinary
-/// app opens where nothing changed). It's cheap and idempotent: it always
-/// does a single COUNT query first, and only proceeds to the network call
-/// when that count has grown since the last generated summary. This is what
-/// makes it fire only on a genuinely new note, never on highlight/comment/tag
-/// edits or repeated window opens.
+/// The entry point, `noteCreated(forPaperId:)`, is called only after a new
+/// paper-scoped note has been inserted. A persisted count guard provides a
+/// second line of defense: generation proceeds only when the note count has
+/// grown since the last successful summary.
 public final class NotebookSummaryService: @unchecked Sendable {
+    /// Shared across service instances so rapid note creation cannot start
+    /// overlapping free-tier requests. Pending checks are coalesced per paper;
+    /// each check re-reads the persisted count after the prior one finishes.
+    private static let regenerationGate = SummaryRegenerationGate()
+
     private let database: DatabaseManager
     private let keychain: KeychainService
     private let gemini: GeminiClient
@@ -36,15 +38,14 @@ public final class NotebookSummaryService: @unchecked Sendable {
         self.highlightRepository = HighlightRepository(database: database)
     }
 
-    /// Fire-and-forget entry point: call after a paper-scoped note is created
-    /// or loaded. Launches a detached background task that resolves the
-    /// paper's containing notebook (if any) and runs the guarded regenerate.
-    /// Safe to call unconditionally — the count guard makes repeat calls
-    /// (e.g. every time the notes window opens) a cheap no-op once the
-    /// summary is already current.
+    /// Fire-and-forget entry point called after a paper-scoped note is created.
+    /// Regeneration checks are serialized and coalesced to prevent overlapping
+    /// requests when several notes are created in quick succession.
     public func noteCreated(forPaperId paperId: String) {
-        Task.detached { [self] in
-            await regenerateIfNeeded(forPaperId: paperId)
+        Task { [self] in
+            await Self.regenerationGate.enqueue(paperId: paperId) { [self] in
+                await regenerateIfNeeded(forPaperId: paperId)
+            }
         }
     }
 
@@ -61,7 +62,10 @@ public final class NotebookSummaryService: @unchecked Sendable {
         }
 
         let currentCount = currentNoteCount(forNotebookId: notebookId)
-        guard currentCount > notebook.aiSummaryNoteCount else {
+        guard Self.shouldRegenerate(
+            currentNoteCount: currentCount,
+            summarizedNoteCount: notebook.aiSummaryNoteCount
+        ) else {
             // No net-new note since the last summary — don't regenerate.
             return
         }
@@ -112,6 +116,13 @@ public final class NotebookSummaryService: @unchecked Sendable {
         }
 
         NotificationCenter.default.post(name: .notebookSummaryDidUpdate, object: nil)
+    }
+
+    /// Pure decision seam for the persisted count guard. Keeping this
+    /// independent of provider/keychain state makes the no-network behavior
+    /// directly regression-testable.
+    static func shouldRegenerate(currentNoteCount: Int, summarizedNoteCount: Int) -> Bool {
+        currentNoteCount > summarizedNoteCount
     }
 
     // MARK: - Lookups
@@ -223,5 +234,27 @@ public final class NotebookSummaryService: @unchecked Sendable {
         }
 
         return lines.joined(separator: "\n")
+    }
+}
+
+/// Serializes notebook-summary checks without blocking their callers. Actor
+/// reentrancy allows new paper ids to be queued while a generation is waiting
+/// on its provider stream; the draining task then processes the latest queue.
+private actor SummaryRegenerationGate {
+    typealias Operation = @Sendable () async -> Void
+
+    private var pending: [String: Operation] = [:]
+    private var isDraining = false
+
+    func enqueue(paperId: String, operation: @escaping Operation) async {
+        pending[paperId] = operation
+        guard !isDraining else { return }
+
+        isDraining = true
+        while let (nextPaperId, nextOperation) = pending.first {
+            pending.removeValue(forKey: nextPaperId)
+            await nextOperation()
+        }
+        isDraining = false
     }
 }
