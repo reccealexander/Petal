@@ -102,9 +102,16 @@ struct PaperPagedLibraryView: View {
         let targetID: String?
         switch currentPage ?? 0 {
         case 0:
-            targetID = direction == .left
-                ? adjacentID(to: selectedID, offset: -1)
-                : direction == .right ? adjacentID(to: selectedID, offset: 1) : nil
+            switch direction {
+            case .left:
+                targetID = adjacentID(to: selectedID, offset: -1)
+            case .right:
+                targetID = adjacentID(to: selectedID, offset: 1)
+            case .up:
+                targetID = adjacentID(to: selectedID, offset: -gridColumnCount)
+            case .down:
+                targetID = adjacentID(to: selectedID, offset: gridColumnCount)
+            }
         case 1:
             targetID = direction == .up
                 ? adjacentID(to: selectedID, offset: -1)
@@ -120,6 +127,16 @@ struct PaperPagedLibraryView: View {
         if let targetID {
             selection.selectOnly(targetID)
         }
+    }
+
+    /// Mirrors PaperGridView's 20-point horizontal padding and adaptive
+    /// GridItem(minimum: 180, spacing: 20) column rule.
+    private var gridColumnCount: Int {
+        let minimumItemWidth: CGFloat = 180
+        let spacing: CGFloat = 20
+        let horizontalPadding: CGFloat = 20
+        let contentWidth = max(0, pageContentSize.width - horizontalPadding * 2)
+        return max(1, Int(floor((contentWidth + spacing) / (minimumItemWidth + spacing))))
     }
 
     private func adjacentID(to selectedID: String, offset: Int) -> String? {
