@@ -92,7 +92,9 @@ struct PDFReaderView: View {
                 paper: paper,
                 database: database,
                 model: model,
-                isFocusModeActive: focus.isActive
+                isFocusModeActive: focus.isActive,
+                onNextChapter: goToNextChapter,
+                onPreviousChapter: goToPreviousChapter
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -126,17 +128,6 @@ struct PDFReaderView: View {
             }
             .animation(.easeInOut(duration: 0.2), value: model.isThumbnailSidebarVisible)
             .animation(.easeInOut(duration: 0.2), value: model.isClaudePanelVisible)
-            .background {
-                Group {
-                    Button(action: goToNextChapter) { EmptyView() }
-                        .keyboardShortcut(.rightArrow, modifiers: .command)
-                    Button(action: goToPreviousChapter) { EmptyView() }
-                        .keyboardShortcut(.leftArrow, modifiers: .command)
-                }
-                .frame(width: 0, height: 0)
-                .opacity(0)
-                .accessibilityHidden(true)
-            }
             .navigationTitle(paper.title ?? "Untitled")
             .onAppear {
                 updateLastOpened()

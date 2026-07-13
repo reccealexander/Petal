@@ -14,10 +14,17 @@ final class AnnotatablePDFView: PDFView {
     var highlightId: ((PDFAnnotation) -> String?)?
     /// Deletes the highlight with the given id.
     var onDeleteHighlight: ((String) -> Void)?
+    /// Chapter navigation is handled here so Command-arrow shortcuts only
+    /// participate while this PDF view is the keyboard's first responder.
+    var onNextChapter: (() -> Void)?
+    var onPreviousChapter: (() -> Void)?
 
     private var pendingDeleteHighlightId: String?
 
     override func mouseDown(with event: NSEvent) {
+        // Annotation clicks can return before PDFView's implementation gets a
+        // chance to establish focus, so make the clicked reader explicit.
+        window?.makeFirstResponder(self)
         let viewPoint = convert(event.locationInWindow, from: nil)
         if let page = page(for: viewPoint, nearest: false) {
             let pagePoint = convert(viewPoint, to: page)
@@ -27,6 +34,25 @@ final class AnnotatablePDFView: PDFView {
             }
         }
         super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        let shortcutModifiers = event.modifierFlags.intersection([
+            .command, .option, .control, .shift
+        ])
+        if shortcutModifiers == .command {
+            switch event.specialKey {
+            case .rightArrow:
+                onNextChapter?()
+                return
+            case .leftArrow:
+                onPreviousChapter?()
+                return
+            default:
+                break
+            }
+        }
+        super.keyDown(with: event)
     }
 
     /// Right-clicking a tracked highlight offers to delete it; otherwise falls
@@ -77,6 +103,8 @@ struct PDFKitWrapper: NSViewRepresentable {
     let database: DatabaseManager
     @ObservedObject var model: PDFReaderModel
     var isFocusModeActive = false
+    let onNextChapter: () -> Void
+    let onPreviousChapter: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -110,6 +138,8 @@ struct PDFKitWrapper: NSViewRepresentable {
         }
         pdfView.highlightId = { [weak coord] annotation in coord?.annotationToId[annotation] }
         pdfView.onDeleteHighlight = { [weak coord] id in coord?.deleteHighlight(id) }
+        pdfView.onNextChapter = onNextChapter
+        pdfView.onPreviousChapter = onPreviousChapter
         NotificationCenter.default.addObserver(
             coord, selector: #selector(Coordinator.selectionChanged(_:)),
             name: .PDFViewSelectionChanged, object: pdfView)
@@ -147,6 +177,10 @@ struct PDFKitWrapper: NSViewRepresentable {
 
     func updateNSView(_ nsView: PDFView, context: Context) {
         nsView.backgroundColor = isFocusModeActive ? .clear : .controlBackgroundColor
+        if let pdfView = nsView as? AnnotatablePDFView {
+            pdfView.onNextChapter = onNextChapter
+            pdfView.onPreviousChapter = onPreviousChapter
+        }
         if nsView.document?.documentURL != url {
             nsView.document = PDFDocument(url: url)
             context.coordinator.didApplyInitialZoom = false
