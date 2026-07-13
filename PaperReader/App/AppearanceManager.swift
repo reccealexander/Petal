@@ -10,6 +10,7 @@ import AppKit
 final class AppearanceManager: ObservableObject {
     private static let defaultsKey = "appearance"
     private static let windowTransparencyDefaultsKey = "windowTransparency"
+    private static let showReadingProgressDefaultsKey = "showReadingProgress"
 
     enum Appearance: String, CaseIterable, Identifiable {
         case system
@@ -46,6 +47,12 @@ final class AppearanceManager: ObservableObject {
         }
     }
 
+    @Published var showReadingProgress: Bool {
+        didSet {
+            UserDefaults.standard.set(showReadingProgress, forKey: Self.showReadingProgressDefaultsKey)
+        }
+    }
+
     /// Linear percentage-to-alpha mapping used by the main window chrome.
     var chromeAlpha: CGFloat { CGFloat(windowTransparency / 100.0) }
 
@@ -59,6 +66,11 @@ final class AppearanceManager: ObservableObject {
                 max(UserDefaults.standard.double(forKey: Self.windowTransparencyDefaultsKey), 1),
                 100
             )
+        }
+        if UserDefaults.standard.object(forKey: Self.showReadingProgressDefaultsKey) == nil {
+            self.showReadingProgress = true
+        } else {
+            self.showReadingProgress = UserDefaults.standard.bool(forKey: Self.showReadingProgressDefaultsKey)
         }
         apply()
     }

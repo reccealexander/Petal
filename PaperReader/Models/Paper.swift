@@ -26,6 +26,7 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
     public var lastPage: Int?
     public var lastScrollOffset: Double?
     public var readingStatus: String
+    public var furthestPageRead: Int
 
     public init(
         id: String = UUID().uuidString,
@@ -44,7 +45,8 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
         pinnedAt: Date? = nil,
         lastPage: Int? = nil,
         lastScrollOffset: Double? = nil,
-        readingStatus: String = "unread"
+        readingStatus: String = "unread",
+        furthestPageRead: Int = 0
     ) {
         self.id = id
         self.notebookId = notebookId
@@ -63,6 +65,7 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
         self.lastPage = lastPage
         self.lastScrollOffset = lastScrollOffset
         self.readingStatus = readingStatus
+        self.furthestPageRead = furthestPageRead
     }
 
     public static let databaseTableName = "paper"
@@ -85,5 +88,6 @@ public struct Paper: Codable, Identifiable, Hashable, FetchableRecord, Persistab
         case lastPage = "last_page"
         case lastScrollOffset = "last_scroll_offset"
         case readingStatus = "reading_status"
+        case furthestPageRead = "furthest_page_read"
     }
 }

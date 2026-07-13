@@ -80,6 +80,7 @@ public final class DatabaseManager {
         V5AddPinnedAt.register(in: &migrator)
         V6AddPageBookmark.register(in: &migrator)
         V7AddReadingProgress.register(in: &migrator)
+        V8AddFurthestPageRead.register(in: &migrator)
         return migrator
     }
 

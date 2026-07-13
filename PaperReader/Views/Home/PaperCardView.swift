@@ -30,6 +30,7 @@ struct PaperCardView: View {
     @StateObject private var accent = AccentColorProvider()
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
+    @EnvironmentObject private var appearance: AppearanceManager
 
     init(
         paper: Paper,
@@ -70,12 +71,11 @@ struct PaperCardView: View {
             ZStack(alignment: .topTrailing) {
                 thumbnailView
                     .frame(width: Self.cardWidth, height: Self.thumbnailHeight)
-
-                HStack(spacing: 4) {
-                    ReadingStatusBadge(status: ReadingStatus(rawValueOrUnread: paper.readingStatus))
-                }
-                        .padding(6)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .overlay {
+                        if appearance.showReadingProgress {
+                            ReadingProgressBorder(fraction: paper.readingProgressFraction)
+                        }
+                    }
 
                 HStack(spacing: 6) {
                     openNoteButton

@@ -226,6 +226,7 @@ private struct FreeSpacePaperCard: View {
     @State private var dragOffset: CGSize = .zero
     @Environment(\.openWindow) private var openWindow
     @StateObject private var accent = AccentColorProvider()
+    @EnvironmentObject private var appearance: AppearanceManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -234,12 +235,11 @@ private struct FreeSpacePaperCard: View {
                     .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
                     .background(Color.secondary.opacity(0.08))
                     .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-
-                HStack(spacing: 4) {
-                    ReadingStatusBadge(status: ReadingStatus(rawValueOrUnread: paper.readingStatus))
-                }
-                        .padding(5)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .overlay {
+                        if appearance.showReadingProgress {
+                            ReadingProgressBorder(fraction: paper.readingProgressFraction)
+                        }
+                    }
 
                 Button {
                     openWindow(value: NotesWindowID(paperId: paper.id))

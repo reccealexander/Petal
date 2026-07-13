@@ -189,6 +189,12 @@ private struct AppearanceSettingsView: View {
                     .frame(width: 36, alignment: .trailing)
             }
 
+            Toggle("Show reading-progress indicator", isOn: $appearance.showReadingProgress)
+
+            Text("Shows how far you have read on library cards and rows.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Text("Appearance changes apply across all windows. Transparency affects only the main library window.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

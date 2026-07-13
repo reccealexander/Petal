@@ -183,6 +183,9 @@ struct PDFKitWrapper: NSViewRepresentable {
         /// we never override a zoom level the user has since chosen
         /// themselves (Feature 2 — page-size opening).
         var didApplyInitialZoom = false
+        private var runningFurthestPageRead: Int
+        private let pageCount: Int?
+        private var didAutoMarkRead = false
 
         private lazy var resumeAutosave = AutosaveController(debounce: 1.0) { [weak self] in
             self?.persistResumePosition()
@@ -199,6 +202,8 @@ struct PDFKitWrapper: NSViewRepresentable {
             self.model = model
             self.repository = repository
             self.notebookRepository = notebookRepository
+            self.runningFurthestPageRead = paper.furthestPageRead
+            self.pageCount = paper.pageCount
             super.init()
         }
 
@@ -239,11 +244,25 @@ struct PDFKitWrapper: NSViewRepresentable {
             else { return }
             let page = document.index(for: destinationPage)
             guard page != NSNotFound else { return }
-            try? notebookRepository.setResumePosition(
-                paperId: paperId,
-                page: page,
-                offset: Double(destination.point.y)
-            )
+            do {
+                try notebookRepository.setResumePosition(
+                    paperId: paperId,
+                    page: page,
+                    offset: Double(destination.point.y)
+                )
+                let reached = page + 1
+                let previousFurthest = runningFurthestPageRead
+                runningFurthestPageRead = max(runningFurthestPageRead, reached)
+                if !didAutoMarkRead,
+                   let pageCount, pageCount > 0,
+                   previousFurthest < pageCount,
+                   runningFurthestPageRead >= pageCount {
+                    try notebookRepository.setReadingStatus(paperId: paperId, status: "read")
+                    didAutoMarkRead = true
+                }
+            } catch {
+                // Resume autosave is best-effort; a later page/scroll event retries it.
+            }
         }
 
         /// Jumps the PDFView to the given page index (called from the

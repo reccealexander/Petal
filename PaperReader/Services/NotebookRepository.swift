@@ -187,8 +187,11 @@ public final class NotebookRepository {
     public func setResumePosition(paperId: String, page: Int, offset: Double) throws {
         try dbQueue.write { db in
             try db.execute(
-                sql: "UPDATE paper SET last_page = ?, last_scroll_offset = ? WHERE id = ?",
-                arguments: [page, offset, paperId]
+                sql: """
+                UPDATE paper SET last_page = ?, last_scroll_offset = ?,
+                    furthest_page_read = MAX(furthest_page_read, ?) WHERE id = ?
+                """,
+                arguments: [page, offset, page + 1, paperId]
             )
         }
     }

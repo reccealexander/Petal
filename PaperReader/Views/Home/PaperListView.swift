@@ -75,6 +75,7 @@ private struct PaperListRow: View {
     let isSelected: Bool
     @Environment(\.openWindow) private var openWindow
     @StateObject private var accent = AccentColorProvider()
+    @EnvironmentObject private var appearance: AppearanceManager
 
     var body: some View {
         HStack(spacing: 12) {
@@ -102,7 +103,9 @@ private struct PaperListRow: View {
 
             Spacer(minLength: 0)
 
-            ReadingStatusBadge(status: ReadingStatus(rawValueOrUnread: paper.readingStatus))
+            if appearance.showReadingProgress {
+                CompactReadingProgress(fraction: paper.readingProgressFraction)
+            }
 
             Button {
                 openWindow(value: NotesWindowID(paperId: paper.id))
