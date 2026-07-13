@@ -249,10 +249,10 @@ struct PDFReaderView: View {
                     Button {
                         model.isClaudePanelVisible.toggle()
                     } label: {
-                        Label("Ask Gemini", systemImage: "sparkles")
+                        Label("Ask AI", systemImage: "sparkles")
                     }
                     .keyboardShortcut("a", modifiers: [.command, .shift])
-                    .help("Ask Gemini about this paper")
+                    .help("Ask AI about this paper")
                 }
 
                 ToolbarItemGroup(placement: .primaryAction) {

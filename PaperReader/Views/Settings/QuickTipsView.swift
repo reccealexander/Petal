@@ -57,10 +57,10 @@ struct QuickTipsView: View {
             HelpTip("Join windows", detail: "Drag any two PDF reader, notes, or main library windows next to each other to join them in one split window."),
             HelpTip("Split windows apart", detail: "Choose Split out in a joined window to separate its panes into individual windows again.")
         ]),
-        HelpSection(title: "Ask Gemini", tips: [
-            HelpTip("Toggle the Gemini panel", detail: "In a reader, Ask Gemini answers about that paper. In the main window, it answers across the selected notebook.", shortcut: "⌘⇧A"),
+        HelpSection(title: "Ask AI", tips: [
+            HelpTip("Toggle the AI panel", detail: "In a reader, Ask AI answers about that paper. In the main window, it answers across the selected notebook.", shortcut: "⌘⇧A"),
             HelpTip("Start with a quick action", detail: "Use quick actions to explain an equation or highlight, summarize a section, relate material to a notebook, and more."),
-            HelpTip("Connect Google AI Studio", detail: "Ask Gemini requires a Google AI Studio API key. Add yours in Preferences → API Key.")
+            HelpTip("Connect an AI provider", detail: "Ask AI requires a Claude or Gemini API key. Add yours in Preferences → API Key.")
         ]),
         HelpSection(title: "Appearance & Search", tips: [
             HelpTip("Choose an appearance", detail: "Select System, Light, or Dark in Preferences → Appearance."),

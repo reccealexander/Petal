@@ -94,7 +94,7 @@ private struct APIKeySettingsView: View {
         if hasClaudeKey != hasGeminiKey {
             return "Notebook summaries use the only provider with a saved key. Add the other key to enable selection."
         }
-        return "Choose which provider generates notebook summaries. Both keys can coexist. The reader chat panel currently continues to use Gemini."
+        return "Choose which provider powers notebook summaries and the reader chat. Both keys can coexist."
     }
 
     @ViewBuilder

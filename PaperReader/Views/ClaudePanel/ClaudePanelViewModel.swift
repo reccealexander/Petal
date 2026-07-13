@@ -25,7 +25,8 @@ final class ClaudePanelViewModel: ObservableObject {
     private let scope: ClaudeChatScope
     private let papersDirectory: URL
     private let keychain: KeychainService
-    private let claude: GeminiClient
+    private let gemini: GeminiClient
+    private let claude: ClaudeClient
     private let contextBuilder: ContextBuilder
     private let chatRepo: ChatSessionRepository
 
@@ -34,7 +35,8 @@ final class ClaudePanelViewModel: ObservableObject {
         self.papersDirectory = database.papersDirectory
         let keychain = KeychainService()
         self.keychain = keychain
-        self.claude = GeminiClient(keychain: keychain)
+        self.gemini = GeminiClient(keychain: keychain)
+        self.claude = ClaudeClient(keychain: keychain)
         self.contextBuilder = ContextBuilder(database: database)
         self.chatRepo = ChatSessionRepository(database: database)
     }
@@ -91,7 +93,7 @@ final class ClaudePanelViewModel: ObservableObject {
     /// Called when the panel appears: restores the persisted conversation for
     /// this scope and refreshes the API-key state.
     func onAppear() {
-        hasAPIKey = keychain.hasAPIKey
+        hasAPIKey = AIProviderPreference.effectiveProvider(keychain: keychain) != nil
         messages = chatRepo.loadMessages(scope: chatScope, scopeId: scopeId)
     }
 
@@ -99,7 +101,7 @@ final class ClaudePanelViewModel: ObservableObject {
     /// the user has been to Settings and back) so the empty state clears
     /// without requiring a relaunch.
     func refreshKeyState() {
-        hasAPIKey = keychain.hasAPIKey
+        hasAPIKey = AIProviderPreference.effectiveProvider(keychain: keychain) != nil
     }
 
     /// Sends `inputText` to Claude, streaming the reply into `streamingText`
@@ -128,6 +130,10 @@ final class ClaudePanelViewModel: ObservableObject {
     /// (typed input) and `runQuickAction(_:)` (pre-composed quick-action
     /// prompts) so there's exactly one streaming/persist implementation.
     private func stream(userMessage: String) async {
+        guard let provider = AIProviderPreference.effectiveProvider(keychain: keychain) else {
+            return
+        }
+
         messages.append(ChatMessage(role: "user", content: userMessage))
         try? chatRepo.saveMessages(messages, scope: chatScope, scopeId: scopeId)
 
@@ -147,14 +153,21 @@ final class ClaudePanelViewModel: ObservableObject {
         case .notebook(let notebook):
             system = contextBuilder.buildNotebookSystemPrompt(notebook: notebook)
         }
-        let claudeMessages = messages.map { GeminiMessage(role: $0.role, content: $0.content) }
-
         isStreaming = true
         streamingText = ""
 
         do {
-            for try await delta in claude.streamMessage(system: system, messages: claudeMessages) {
-                streamingText += delta
+            switch provider {
+            case .claude:
+                let claudeMessages = messages.map { ClaudeMessage(role: $0.role, content: $0.content) }
+                for try await delta in claude.streamMessage(system: system, messages: claudeMessages) {
+                    streamingText += delta
+                }
+            case .gemini:
+                let geminiMessages = messages.map { GeminiMessage(role: $0.role, content: $0.content) }
+                for try await delta in gemini.streamMessage(system: system, messages: geminiMessages) {
+                    streamingText += delta
+                }
             }
             messages.append(ChatMessage(role: "assistant", content: streamingText))
         } catch {
