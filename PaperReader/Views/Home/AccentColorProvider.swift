@@ -25,17 +25,17 @@ final class AccentColorProvider: ObservableObject {
     }
 }
 
-struct PaperNoteBadge: View {
+struct PinBadge: View {
     @StateObject private var accent = AccentColorProvider()
 
     var body: some View {
-        Image(systemName: "note.text")
+        Image(systemName: "pin.fill")
             .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.white)
+            .foregroundStyle(accent.color)
             .padding(5)
-            .background(Circle().fill(accent.color))
+            .background(Circle().fill(.ultraThinMaterial))
             .shadow(color: .black.opacity(0.18), radius: 2, y: 1)
-            .help("Has notes")
+            .help("Pinned")
     }
 }
 

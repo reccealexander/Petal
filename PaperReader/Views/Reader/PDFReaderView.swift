@@ -35,6 +35,8 @@ struct PDFReaderView: View {
     @State private var isHighlightTaxonomyPresented = false
     @State private var isFocusToolbarExpanded = false
     @State private var focusToolbarOffset: CGSize = .zero
+    @State private var hasNote = false
+    @StateObject private var accent = AccentColorProvider()
     @GestureState private var focusToolbarDragOffset: CGSize = .zero
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
@@ -112,6 +114,7 @@ struct PDFReaderView: View {
                 updateLastOpened()
                 advanceReadingStatusIfNeeded()
                 bookmarkStore.load()
+                refreshHasNote()
             }
             // Session 9 Part A (best effort, not GUI-verified): standalone
             // reader windows register with CompareCoordinator so drag-to-snap
@@ -194,6 +197,7 @@ struct PDFReaderView: View {
                         openWindow(value: NotesWindowID(paperId: paper.id))
                     } label: {
                         Label("Notes", systemImage: "note.text")
+                            .foregroundStyle(hasNote ? accent.color : Color.secondary)
                     }
                     .help("Open notes for this paper")
                 }
@@ -308,6 +312,7 @@ struct PDFReaderView: View {
                     openWindow(value: NotesWindowID(paperId: paper.id))
                 } label: {
                     Image(systemName: "note.text")
+                        .foregroundStyle(hasNote ? accent.color : Color.secondary)
                 }
                 .buttonStyle(.plain)
                 .help("Open notes for this paper")
@@ -358,6 +363,10 @@ struct PDFReaderView: View {
                 model.goToPage(page)
             }
         }
+    }
+
+    private func refreshHasNote() {
+        hasNote = ((try? NoteRepository(database: database).primaryNote(forPaper: paper.id)) ?? nil) != nil
     }
 
     private func updateWindowAppearance(for window: NSWindow) {

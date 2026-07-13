@@ -73,6 +73,8 @@ private struct PaperListRow: View {
     let tags: [Tag]
     let hasNotes: Bool
     let isSelected: Bool
+    @Environment(\.openWindow) private var openWindow
+    @StateObject private var accent = AccentColorProvider()
 
     var body: some View {
         HStack(spacing: 12) {
@@ -102,9 +104,17 @@ private struct PaperListRow: View {
 
             ReadingStatusBadge(status: ReadingStatus(rawValueOrUnread: paper.readingStatus))
 
-            if hasNotes {
-                PaperNoteBadge()
+            Button {
+                openWindow(value: NotesWindowID(paperId: paper.id))
+            } label: {
+                Image(systemName: "note.text")
+                    .font(.caption)
+                    .foregroundStyle(hasNotes ? accent.color : Color.secondary)
+                    .padding(6)
+                    .background(Circle().fill(.ultraThinMaterial))
             }
+            .buttonStyle(.plain)
+            .help("Open Note")
         }
         .padding(.vertical, 9)
         .padding(.horizontal, 12)

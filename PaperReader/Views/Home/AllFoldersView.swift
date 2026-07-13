@@ -54,16 +54,9 @@ private struct AllFolderCard: View {
                 .frame(maxWidth: .infinity)
 
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(notebook.name)
-                        .font(.headline)
-                        .lineLimit(2)
-                    if notebook.pinnedAt != nil {
-                        Image(systemName: "pin.fill")
-                            .foregroundStyle(Color.accentColor)
-                            .font(.caption)
-                    }
-                }
+                Text(notebook.name)
+                    .font(.headline)
+                    .lineLimit(2)
 
                 Text(paperCount == 1 ? "1 paper" : "\(paperCount) papers")
                     .font(.caption)
@@ -83,7 +76,7 @@ private struct AllFolderCard: View {
     }
 
     private var stackedThumbnail: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             pileSheet(offset: CGSize(width: -10, height: 10), opacity: 0.52)
             pileSheet(offset: CGSize(width: -5, height: 5), opacity: 0.72)
 
@@ -106,6 +99,11 @@ private struct AllFolderCard: View {
             .frame(width: 126, height: 162)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .shadow(color: .black.opacity(0.16), radius: 7, y: 3)
+
+            if notebook.pinnedAt != nil {
+                PinBadge()
+                    .padding(5)
+            }
         }
     }
 
