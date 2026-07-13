@@ -13,7 +13,8 @@ let package = Package(
         .library(name: "PaperReaderCore", targets: ["PaperReaderCore"])
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0")
+        .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
+        .package(url: "https://github.com/mgriebling/SwiftMath.git", from: "1.5.0")
     ],
     targets: [
         // Models/ + Database/ live here. Kept separate from the app target so the
@@ -28,7 +29,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "PaperReaderApp",
-            dependencies: ["PaperReaderCore"],
+            dependencies: [
+                "PaperReaderCore",
+                .product(name: "SwiftMath", package: "SwiftMath")
+            ],
             path: "PaperReader",
             sources: ["App", "Views/Home", "Views/Reader", "Views/Notes", "Views/ClaudePanel", "Views/Settings"]
         ),

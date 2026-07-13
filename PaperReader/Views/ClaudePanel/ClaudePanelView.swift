@@ -1,5 +1,7 @@
 import SwiftUI
+import AppKit
 import PaperReaderCore
+import SwiftMath
 
 /// The live PDF-reader context the Claude panel's quick actions draw on
 /// (Session 7 Part C). Built by `PDFReaderView` from `PDFReaderModel`'s
@@ -460,6 +462,29 @@ private struct ChatBubble: View {
         }
     }
 
+    private enum ProseBlock: Identifiable {
+        case proseLine(Int, Int?, String)
+        case displayMath(Int, String, String)
+        case blank(Int)
+
+        var id: Int {
+            switch self {
+            case .proseLine(let id, _, _), .displayMath(let id, _, _), .blank(let id): id
+            }
+        }
+    }
+
+    private enum InlineRun: Identifiable {
+        case text(Int, String)
+        case math(Int, latex: String, source: String)
+
+        var id: Int {
+            switch self {
+            case .text(let id, _), .math(let id, _, _): id
+            }
+        }
+    }
+
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: 24) }
@@ -495,9 +520,7 @@ private struct ChatBubble: View {
             ForEach(segments) { segment in
                 switch segment {
                 case .text(_, let content):
-                    Text(inlineMarkdown(from: readableListMarkers(in: content)))
-                        .font(chatFont)
-                        .textSelection(.enabled)
+                    proseContent(content)
                 case .code(_, let content):
                     Text(content)
                         .font(.system(.body, design: .monospaced))
@@ -513,10 +536,74 @@ private struct ChatBubble: View {
         }
     }
 
+    @ViewBuilder
+    private func proseContent(_ content: String) -> some View {
+        let blocks = proseBlocks(in: content)
+        VStack(alignment: .leading, spacing: 5) {
+            ForEach(blocks, id: \.id) { (block: ProseBlock) in
+                switch block {
+                case let .proseLine(_, level, content):
+                    inlineContent(
+                        readableListMarkers(in: content),
+                        font: level.map(headerFont) ?? chatFont,
+                        fontSize: level.map(headerFontSize) ?? chatFontSize
+                    )
+                case let .displayMath(_, latex, _):
+                    MathLabel(latex: latex, fontSize: chatFontSize, mode: .display)
+                        .fixedSize()
+                        .frame(maxWidth: .infinity, alignment: .center)
+                case .blank:
+                    Color.clear.frame(height: max(2, chatFontSize * 0.35))
+                }
+            }
+        }
+    }
+
+    /// SwiftUI `Text` cannot embed an `NSView`, so mixed prose/math is split
+    /// into ordered runs and placed by a small wrapping `Layout`. A long prose
+    /// run may wrap before the following formula instead of breaking at every
+    /// word, but short inline formulas stay in the surrounding line and all
+    /// markdown attributes within each prose run remain intact.
+    @ViewBuilder
+    private func inlineContent(_ content: String, font: Font, fontSize: CGFloat) -> some View {
+        let runs = inlineRuns(in: content)
+        InlineMathFlowLayout(spacing: 2) {
+            ForEach(runs, id: \.id) { (run: InlineRun) in
+                switch run {
+                case let .text(_, text):
+                    Text(inlineMarkdown(from: text))
+                        .font(font)
+                        .textSelection(.enabled)
+                case let .math(_, latex, _):
+                    MathLabel(latex: latex, fontSize: fontSize, mode: .text)
+                        .fixedSize()
+                }
+            }
+        }
+    }
+
     private var chatFont: Font {
         appearance.chatFontName == "System"
-            ? .system(size: appearance.chatFontSize)
-            : .custom(appearance.chatFontName, size: appearance.chatFontSize)
+            ? .system(size: chatFontSize)
+            : .custom(appearance.chatFontName, size: chatFontSize)
+    }
+
+    private var chatFontSize: CGFloat { CGFloat(appearance.chatFontSize) }
+
+    private func headerFont(_ level: Int) -> Font {
+        let size = headerFontSize(level)
+        return appearance.chatFontName == "System"
+            ? .system(size: size, weight: .bold)
+            : .custom(appearance.chatFontName, size: size).bold()
+    }
+
+    private func headerFontSize(_ level: Int) -> CGFloat {
+        let scale: CGFloat = switch level {
+        case 1: 1.55
+        case 2: 1.35
+        default: 1.18
+        }
+        return chatFontSize * scale
     }
 
     private func inlineMarkdown(from content: String) -> AttributedString {
@@ -539,6 +626,226 @@ private struct ChatBubble: View {
                 return String(line)
             }
             .joined(separator: "\n")
+    }
+
+    /// Separates display math first, then turns prose into independently
+    /// styled lines so Markdown ATX headers can use fonts derived from the
+    /// user's chat font. Unclosed delimiters remain prose while streaming.
+    private func proseBlocks(in content: String) -> [ProseBlock] {
+        enum RawBlock {
+            case prose(String)
+            case math(latex: String, source: String)
+        }
+
+        var rawBlocks: [RawBlock] = []
+        var cursor = content.startIndex
+        var searchStart = cursor
+
+        while let opening = nextDisplayOpening(in: content, from: searchStart) {
+            let closingDelimiter = opening.delimiter == "$$" ? "$$" : "\\]"
+            let mathStart = opening.range.upperBound
+            guard let closing = nextClosing(
+                closingDelimiter,
+                in: content,
+                from: mathStart,
+                singleDollar: false
+            ) else {
+                break
+            }
+
+            let latex = String(content[mathStart..<closing.lowerBound])
+            guard !latex.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  isValidMath(latex) else {
+                searchStart = closing.upperBound
+                continue
+            }
+
+            if cursor < opening.range.lowerBound {
+                rawBlocks.append(.prose(String(content[cursor..<opening.range.lowerBound])))
+            }
+            rawBlocks.append(.math(
+                latex: latex,
+                source: String(content[opening.range.lowerBound..<closing.upperBound])
+            ))
+            cursor = closing.upperBound
+            searchStart = cursor
+        }
+
+        if cursor < content.endIndex || rawBlocks.isEmpty {
+            rawBlocks.append(.prose(String(content[cursor...])))
+        }
+
+        var blocks: [ProseBlock] = []
+        for rawBlock in rawBlocks {
+            switch rawBlock {
+            case .math(let latex, let source):
+                blocks.append(.displayMath(blocks.count, latex, source))
+            case .prose(let prose):
+                for line in prose.split(separator: "\n", omittingEmptySubsequences: false) {
+                    let text = String(line)
+                    if text.isEmpty {
+                        blocks.append(.blank(blocks.count))
+                    } else {
+                        let header = parsedHeader(text)
+                        blocks.append(.proseLine(blocks.count, header?.level, header?.content ?? text))
+                    }
+                }
+            }
+        }
+        return blocks
+    }
+
+    private func parsedHeader(_ line: String) -> (level: Int, content: String)? {
+        var index = line.startIndex
+        var level = 0
+        while index < line.endIndex, line[index] == "#", level < 4 {
+            level += 1
+            index = line.index(after: index)
+        }
+        guard (1...3).contains(level), index == line.endIndex || line[index] != "#" else { return nil }
+        if index < line.endIndex, line[index] == " " {
+            index = line.index(after: index)
+        }
+        return (level, String(line[index...]))
+    }
+
+    private func inlineRuns(in content: String) -> [InlineRun] {
+        var runs: [InlineRun] = []
+        var cursor = content.startIndex
+        var searchStart = cursor
+
+        while let opening = nextInlineOpening(in: content, from: searchStart) {
+            let closingDelimiter = opening.delimiter == "$" ? "$" : "\\)"
+            let mathStart = opening.range.upperBound
+            guard let closing = nextClosing(
+                closingDelimiter,
+                in: content,
+                from: mathStart,
+                singleDollar: opening.delimiter == "$"
+            ) else { break }
+
+            let latex = String(content[mathStart..<closing.lowerBound])
+            guard isPlausibleInlineMath(latex), isValidMath(latex) else {
+                searchStart = closing.upperBound
+                continue
+            }
+
+            if cursor < opening.range.lowerBound {
+                runs.append(.text(runs.count, String(content[cursor..<opening.range.lowerBound])))
+            }
+            runs.append(.math(
+                runs.count,
+                latex: latex,
+                source: String(content[opening.range.lowerBound..<closing.upperBound])
+            ))
+            cursor = closing.upperBound
+            searchStart = cursor
+        }
+
+        if cursor < content.endIndex || runs.isEmpty {
+            runs.append(.text(runs.count, String(content[cursor...])))
+        }
+        return runs
+    }
+
+    private func nextDisplayOpening(
+        in content: String,
+        from start: String.Index
+    ) -> (range: Range<String.Index>, delimiter: String)? {
+        nextOpening(delimiters: ["$$", "\\["], in: content, from: start)
+    }
+
+    private func nextInlineOpening(
+        in content: String,
+        from start: String.Index
+    ) -> (range: Range<String.Index>, delimiter: String)? {
+        var position = start
+        while let opening = nextOpening(delimiters: ["$", "\\("], in: content, from: position) {
+            if opening.delimiter == "$" {
+                let after = opening.range.upperBound
+                if (after < content.endIndex && content[after] == "$") || isEscaped(opening.range.lowerBound, in: content) {
+                    position = after
+                    continue
+                }
+            }
+            return opening
+        }
+        return nil
+    }
+
+    private func nextOpening(
+        delimiters: [String],
+        in content: String,
+        from start: String.Index
+    ) -> (range: Range<String.Index>, delimiter: String)? {
+        delimiters.compactMap { delimiter -> (Range<String.Index>, String)? in
+            guard let range = firstUnescapedRange(of: delimiter, in: content, from: start) else { return nil }
+            return (range, delimiter)
+        }
+        .min { $0.0.lowerBound < $1.0.lowerBound }
+        .map { ($0.0, $0.1) }
+    }
+
+    private func firstUnescapedRange(
+        of delimiter: String,
+        in content: String,
+        from start: String.Index
+    ) -> Range<String.Index>? {
+        var position = start
+        while let range = content.range(of: delimiter, range: position..<content.endIndex) {
+            if !isEscaped(range.lowerBound, in: content) {
+                return range
+            }
+            position = range.upperBound
+        }
+        return nil
+    }
+
+    private func nextClosing(
+        _ delimiter: String,
+        in content: String,
+        from start: String.Index,
+        singleDollar: Bool
+    ) -> Range<String.Index>? {
+        var position = start
+        while let range = content.range(of: delimiter, range: position..<content.endIndex) {
+            let after = range.upperBound
+            if !isEscaped(range.lowerBound, in: content),
+               !(singleDollar && after < content.endIndex && content[after] == "$") {
+                return range
+            }
+            position = after
+        }
+        return nil
+    }
+
+    private func isEscaped(_ index: String.Index, in content: String) -> Bool {
+        var slashCount = 0
+        var cursor = index
+        while cursor > content.startIndex {
+            let previous = content.index(before: cursor)
+            guard content[previous] == "\\" else { break }
+            slashCount += 1
+            cursor = previous
+        }
+        return slashCount.isMultiple(of: 2) == false
+    }
+
+    private func isPlausibleInlineMath(_ latex: String) -> Bool {
+        guard !latex.isEmpty, !latex.contains("\n"),
+              latex.first?.isWhitespace == false,
+              latex.last?.isWhitespace == false else { return false }
+        // Avoid treating common currency prose such as "$5 and $10" as math.
+        if latex.first?.isNumber == true && latex.contains(where: \Character.isWhitespace) {
+            return false
+        }
+        return true
+    }
+
+    private func isValidMath(_ latex: String) -> Bool {
+        var error: NSError?
+        let list = MTMathListBuilder.build(fromString: latex, error: &error)
+        return list != nil && error == nil
     }
 
     /// Splits triple-backtick fences from prose. An optional language label
@@ -582,5 +889,104 @@ private struct ChatBubble: View {
         }
         appendProse()
         return segments
+    }
+}
+
+/// AppKit-backed SwiftMath label sized to its intrinsic formula dimensions.
+private struct MathLabel: NSViewRepresentable {
+    let latex: String
+    let fontSize: CGFloat
+    let mode: MTMathUILabelMode
+
+    func makeNSView(context: Context) -> MTMathUILabel {
+        let label = MTMathUILabel()
+        label.displayErrorInline = false
+        configure(label)
+        return label
+    }
+
+    func updateNSView(_ label: MTMathUILabel, context: Context) {
+        configure(label)
+    }
+
+    func sizeThatFits(
+        _ proposal: ProposedViewSize,
+        nsView: MTMathUILabel,
+        context: Context
+    ) -> CGSize? {
+        nsView.fittingSize
+    }
+
+    private func configure(_ label: MTMathUILabel) {
+        label.labelMode = mode
+        label.fontSize = fontSize
+        label.textColor = .labelColor
+        label.textAlignment = mode == .display ? .center : .left
+        label.latex = latex
+    }
+}
+
+/// A compact flow layout for alternating prose and intrinsic-size math views.
+private struct InlineMathFlowLayout: Layout {
+    let spacing: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        layout(proposal: proposal, subviews: subviews).size
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let result = layout(
+            proposal: ProposedViewSize(width: bounds.width, height: proposal.height),
+            subviews: subviews
+        )
+        for (index, point) in result.points.enumerated() {
+            let size = result.sizes[index]
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: size.width, height: size.height)
+            )
+        }
+    }
+
+    private func layout(
+        proposal: ProposedViewSize,
+        subviews: Subviews
+    ) -> (size: CGSize, points: [CGPoint], sizes: [CGSize]) {
+        let availableWidth = proposal.width ?? .infinity
+        var points: [CGPoint] = []
+        var sizes: [CGSize] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var measuredWidth: CGFloat = 0
+
+        for subview in subviews {
+            var size = subview.sizeThatFits(.unspecified)
+            if size.width > availableWidth {
+                size = subview.sizeThatFits(ProposedViewSize(width: availableWidth, height: nil))
+            }
+            if x > 0, x + size.width > availableWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            points.append(CGPoint(x: x, y: y))
+            sizes.append(size)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+            measuredWidth = max(measuredWidth, x - spacing)
+        }
+
+        return (CGSize(width: min(measuredWidth, availableWidth), height: y + rowHeight), points, sizes)
     }
 }
