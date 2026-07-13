@@ -21,7 +21,8 @@ struct ReaderQuickActionSource {
 /// `HStack` (mirroring the Part A thumbnail sidebar) rather than a literal
 /// third `NSSplitViewController` pane — this meets the "slides in, toolbar
 /// toggled" deliverable with far less plumbing than a real split view
-/// controller, at the cost of not being independently resizable by dragging.
+/// controller. The host HStack supplies a draggable separator and persists
+/// this pane's width through `AppearanceManager`.
 ///
 /// When opened for a paper that belongs to a notebook, a "Paper | Notebook"
 /// segmented switcher lets the user swap the active scope without losing
@@ -36,6 +37,7 @@ struct ClaudePanelView: View {
 
     @State private var viewModel: ClaudePanelViewModel
     @State private var mode: Mode
+    @EnvironmentObject private var appearance: AppearanceManager
 
     private let database: DatabaseManager
     private let paper: Paper?
@@ -106,7 +108,7 @@ struct ClaudePanelView: View {
                 notebookName: containingNotebook?.name
             )
         }
-        .frame(width: 340)
+        .frame(width: appearance.aiPanelWidth)
         .onAppear {
             viewModel.onAppear()
             viewModel.refreshKeyState()
@@ -347,13 +349,28 @@ private struct ChatBubble: View {
 
     private var isUser: Bool { message.role == "user" }
 
+    private enum MarkdownSegment: Identifiable {
+        case text(Int, String)
+        case code(Int, String)
+
+        var id: Int {
+            switch self {
+            case .text(let id, _), .code(let id, _): return id
+            }
+        }
+    }
+
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: 24) }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(message.content.isEmpty ? " " : message.content)
-                    .textSelection(.enabled)
+                if isUser {
+                    Text(message.content.isEmpty ? " " : message.content)
+                        .textSelection(.enabled)
+                } else {
+                    assistantContent
+                }
                 if isStreaming {
                     ProgressView()
                         .controlSize(.small)
@@ -368,5 +385,94 @@ private struct ChatBubble: View {
 
             if !isUser { Spacer(minLength: 24) }
         }
+    }
+
+    @ViewBuilder
+    private var assistantContent: some View {
+        let segments = markdownSegments(message.content.isEmpty ? " " : message.content)
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(segments) { segment in
+                switch segment {
+                case .text(_, let content):
+                    Text(inlineMarkdown(from: readableListMarkers(in: content)))
+                        .textSelection(.enabled)
+                case .code(_, let content):
+                    Text(content)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.primary.opacity(0.06))
+                        )
+                }
+            }
+        }
+    }
+
+    private func inlineMarkdown(from content: String) -> AttributedString {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible
+        )
+        return (try? AttributedString(markdown: content, options: options)) ?? AttributedString(content)
+    }
+
+    /// Makes simple unordered lists typographically readable while leaving
+    /// numbered markers and all line breaks intact for inline parsing.
+    private func readableListMarkers(in content: String) -> String {
+        content
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line -> String in
+                if line.hasPrefix("- ") || line.hasPrefix("* ") {
+                    return "•  " + line.dropFirst(2)
+                }
+                return String(line)
+            }
+            .joined(separator: "\n")
+    }
+
+    /// Splits triple-backtick fences from prose. An optional language label
+    /// on the opening fence is omitted from the displayed code block.
+    private func markdownSegments(_ content: String) -> [MarkdownSegment] {
+        var segments: [MarkdownSegment] = []
+        var proseLines: [Substring] = []
+        var codeLines: [Substring] = []
+        var isInCodeFence = false
+
+        func appendProse() {
+            guard !proseLines.isEmpty else { return }
+            segments.append(.text(segments.count, proseLines.joined(separator: "\n")))
+            proseLines.removeAll()
+        }
+
+        func appendCode() {
+            segments.append(.code(segments.count, codeLines.joined(separator: "\n")))
+            codeLines.removeAll()
+        }
+
+        for line in content.split(separator: "\n", omittingEmptySubsequences: false) {
+            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+                if isInCodeFence {
+                    appendCode()
+                } else {
+                    appendProse()
+                }
+                isInCodeFence.toggle()
+            } else if isInCodeFence {
+                codeLines.append(line)
+            } else {
+                proseLines.append(line)
+            }
+        }
+
+        if isInCodeFence {
+            // Preserve an unmatched opening fence rather than losing content.
+            proseLines.append("```")
+            proseLines.append(contentsOf: codeLines)
+        }
+        appendProse()
+        return segments
     }
 }
