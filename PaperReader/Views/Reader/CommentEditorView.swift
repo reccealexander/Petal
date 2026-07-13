@@ -18,7 +18,12 @@ struct CommentEditorView: View {
     let onDelete: (() -> Void)?
 
     @State private var text: String
+    @State private var popoverSize = CGSize(width: 320, height: 240)
+    @State private var resizeStartSize: CGSize?
     @FocusState private var editorFocused: Bool
+
+    private let minimumPopoverSize = CGSize(width: 260, height: 160)
+    private let maximumPopoverSize = CGSize(width: 640, height: 520)
 
     init(
         initialText: String,
@@ -49,7 +54,7 @@ struct CommentEditorView: View {
                 .focused($editorFocused)
                 .scrollContentBackground(.hidden)
                 .padding(6)
-                .frame(minHeight: 120)
+                .frame(minHeight: 60, maxHeight: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
                         .fill(Color(nsColor: .textBackgroundColor))
@@ -82,7 +87,38 @@ struct CommentEditorView: View {
             }
         }
         .padding(16)
-        .frame(width: 320)
+        .frame(width: popoverSize.width, height: popoverSize.height)
+        .overlay(alignment: .bottomTrailing) {
+            Image(systemName: "arrow.down.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+                .help("Drag to resize")
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if resizeStartSize == nil {
+                                resizeStartSize = popoverSize
+                            }
+                            guard let startSize = resizeStartSize else { return }
+                            popoverSize = CGSize(
+                                width: min(
+                                    maximumPopoverSize.width,
+                                    max(minimumPopoverSize.width, startSize.width + value.translation.width)
+                                ),
+                                height: min(
+                                    maximumPopoverSize.height,
+                                    max(minimumPopoverSize.height, startSize.height + value.translation.height)
+                                )
+                            )
+                        }
+                        .onEnded { _ in
+                            resizeStartSize = nil
+                        }
+                )
+                .padding(1)
+        }
         .onAppear { DispatchQueue.main.async { editorFocused = true } }
     }
 }
