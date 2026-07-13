@@ -70,6 +70,26 @@ public final class HighlightRepository {
         }
     }
 
+    /// Deletes only the comment attached to a highlight, leaving the highlight
+    /// itself intact. The associated search entry is removed in the same
+    /// transaction so full-text search stays consistent with the source rows.
+    public func deleteComment(forHighlight highlightId: String) throws {
+        try dbQueue.write { db in
+            let commentIds = try String.fetchAll(
+                db,
+                sql: "SELECT id FROM comment WHERE highlight_id = ?",
+                arguments: [highlightId]
+            )
+            for commentId in commentIds {
+                try SearchIndex.remove(entityId: commentId, in: db)
+            }
+            try db.execute(
+                sql: "DELETE FROM comment WHERE highlight_id = ?",
+                arguments: [highlightId]
+            )
+        }
+    }
+
     /// Create the highlight's comment, or update the existing one's body.
     /// On update, sets `updated_at` to now. Returns the resulting row.
     @discardableResult
