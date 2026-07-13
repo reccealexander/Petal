@@ -6,9 +6,8 @@ import PaperReaderCore
 /// binds to that menu item automatically).
 ///
 /// Three sections:
-/// - **API Key** — the Google AI Studio (Gemini) API key, stored in the
-///   Keychain only — never in UserDefaults or plaintext on disk — via
-///   `KeychainService`.
+/// - **API Keys** — independent Anthropic and Google AI Studio keys stored in
+///   Keychain, plus the preferred notebook-summary provider.
 /// - **Appearance** — System/Light/Dark, persisted in UserDefaults (a
 ///   non-secret UI preference) and applied live via `AppearanceManager`.
 /// - **Quick Tips** — a plain-language guide to the library's features and
@@ -38,76 +37,130 @@ struct SettingsView: View {
 private struct APIKeySettingsView: View {
     private let keychain = KeychainService()
 
-    @State private var keyInput: String = ""
-    @State private var hasStoredKey: Bool = false
-    @State private var didJustSave: Bool = false
+    @State private var selectedProvider = AIProviderPreference.preferred()
+    @State private var claudeKeyInput = ""
+    @State private var geminiKeyInput = ""
+    @State private var hasClaudeKey = false
+    @State private var hasGeminiKey = false
+    @State private var savedProvider: AIProvider?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Google AI Studio API Key")
-                .font(.headline)
-
-            if hasStoredKey {
-                Label("A key is currently set", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(.green)
-                    .font(.callout)
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Notebook Summary Provider").font(.headline)
+            Picker("Notebook Summary Provider", selection: $selectedProvider) {
+                ForEach(AIProvider.allCases) { provider in
+                    Text(provider.displayName).tag(provider)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .disabled(hasClaudeKey != hasGeminiKey)
+            .onChange(of: selectedProvider) { _, provider in
+                guard providerHasKey(provider) || (!hasClaudeKey && !hasGeminiKey) else {
+                    reconcileProviderSelection()
+                    return
+                }
+                AIProviderPreference.setPreferred(provider)
             }
 
-            SecureField("AIza…", text: $keyInput)
-                .textFieldStyle(.roundedBorder)
-
-            Text("Stored securely in the macOS Keychain. Required to use the AI panel in the reader.")
+            Text(providerHelp)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Link("Get a key at aistudio.google.com/app/apikey", destination: URL(string: "https://aistudio.google.com/app/apikey")!)
-                .font(.caption)
-
-            HStack {
-                Button("Save") {
-                    save()
-                }
-                .disabled(keyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                Button("Remove Key", role: .destructive) {
-                    remove()
-                }
-                .disabled(!hasStoredKey)
-
-                Spacer()
-
-                if didJustSave {
-                    Label("Saved", systemImage: "checkmark")
-                        .foregroundStyle(.green)
-                        .font(.caption)
-                }
-            }
+            Divider()
+            keySection(
+                title: "Anthropic (Claude)", provider: .claude,
+                placeholder: "sk-ant-…", input: $claudeKeyInput,
+                hasKey: hasClaudeKey,
+                linkLabel: "Get a key at console.anthropic.com/settings/keys",
+                link: "https://console.anthropic.com/settings/keys"
+            )
+            Divider()
+            keySection(
+                title: "Google AI Studio (Gemini)", provider: .gemini,
+                placeholder: "AIza…", input: $geminiKeyInput,
+                hasKey: hasGeminiKey,
+                linkLabel: "Get a key at aistudio.google.com/app/apikey",
+                link: "https://aistudio.google.com/app/apikey"
+            )
 
             Spacer()
         }
         .padding(20)
-        .onAppear {
-            hasStoredKey = keychain.hasAPIKey
+        .onAppear { refreshKeyState() }
+    }
+
+    private var providerHelp: String {
+        if hasClaudeKey != hasGeminiKey {
+            return "Notebook summaries use the only provider with a saved key. Add the other key to enable selection."
+        }
+        return "Choose which provider generates notebook summaries. Both keys can coexist. The reader chat panel currently continues to use Gemini."
+    }
+
+    @ViewBuilder
+    private func keySection(
+        title: String, provider: AIProvider, placeholder: String,
+        input: Binding<String>, hasKey: Bool, linkLabel: String, link: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.headline)
+            if hasKey {
+                Label("A key is currently set", systemImage: "checkmark.seal.fill")
+                    .foregroundStyle(.green).font(.callout)
+            }
+            SecureField(placeholder, text: input).textFieldStyle(.roundedBorder)
+            Text("Stored independently and securely in the macOS Keychain.")
+                .font(.caption).foregroundStyle(.secondary)
+            Link(linkLabel, destination: URL(string: link)!).font(.caption)
+            HStack {
+                Button("Save") { save(provider, value: input.wrappedValue) }
+                    .disabled(input.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("Remove Key", role: .destructive) { remove(provider) }
+                    .disabled(!hasKey)
+                Spacer()
+                if savedProvider == provider {
+                    Label("Saved", systemImage: "checkmark").foregroundStyle(.green).font(.caption)
+                }
+            }
         }
     }
 
-    private func save() {
-        let trimmed = keyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func save(_ provider: AIProvider, value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        try? keychain.setAPIKey(trimmed)
-        keyInput = ""
-        hasStoredKey = keychain.hasAPIKey
-        didJustSave = true
+        try? keychain.setAPIKey(trimmed, for: provider)
+        if provider == .claude { claudeKeyInput = "" } else { geminiKeyInput = "" }
+        refreshKeyState()
+        savedProvider = provider
         Task {
             try? await Task.sleep(for: .seconds(2))
-            didJustSave = false
+            if savedProvider == provider { savedProvider = nil }
         }
     }
 
-    private func remove() {
-        keychain.deleteAPIKey()
-        hasStoredKey = keychain.hasAPIKey
-        keyInput = ""
+    private func remove(_ provider: AIProvider) {
+        keychain.deleteAPIKey(for: provider)
+        if provider == .claude { claudeKeyInput = "" } else { geminiKeyInput = "" }
+        refreshKeyState()
+    }
+
+    private func refreshKeyState() {
+        hasClaudeKey = keychain.hasAPIKey(for: .claude)
+        hasGeminiKey = keychain.hasAPIKey(for: .gemini)
+        reconcileProviderSelection()
+    }
+
+    private func reconcileProviderSelection() {
+        if hasClaudeKey != hasGeminiKey {
+            selectedProvider = hasClaudeKey ? .claude : .gemini
+            AIProviderPreference.setPreferred(selectedProvider)
+        } else {
+            selectedProvider = AIProviderPreference.preferred()
+        }
+    }
+
+    private func providerHasKey(_ provider: AIProvider) -> Bool {
+        provider == .claude ? hasClaudeKey : hasGeminiKey
     }
 }
 

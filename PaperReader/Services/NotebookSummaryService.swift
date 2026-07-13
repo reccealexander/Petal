@@ -8,9 +8,7 @@ public extension Notification.Name {
 }
 
 /// Generates and caches an AI summary of a notebook's papers/highlights/
-/// comments/notes via Gemini (Session 10, Feature 3). Reuses the same
-/// `GeminiClient` + Google AI Studio Keychain key as the chatbot and
-/// `TagSuggestionService` — there is no separate summary API key.
+/// comments/notes via the user's selected AI provider.
 ///
 /// The entry point, `noteCreated(forPaperId:)`, is meant to be called
 /// whenever a paper-scoped note is created OR loaded (including on ordinary
@@ -23,6 +21,7 @@ public final class NotebookSummaryService: @unchecked Sendable {
     private let database: DatabaseManager
     private let keychain: KeychainService
     private let gemini: GeminiClient
+    private let claude: ClaudeClient
     private let notebookRepository: NotebookRepository
     private let noteRepository: NoteRepository
     private let highlightRepository: HighlightRepository
@@ -31,6 +30,7 @@ public final class NotebookSummaryService: @unchecked Sendable {
         self.database = database
         self.keychain = KeychainService()
         self.gemini = GeminiClient(keychain: keychain)
+        self.claude = ClaudeClient(keychain: keychain)
         self.notebookRepository = NotebookRepository(database: database)
         self.noteRepository = NoteRepository(database: database)
         self.highlightRepository = HighlightRepository(database: database)
@@ -66,7 +66,7 @@ public final class NotebookSummaryService: @unchecked Sendable {
             return
         }
 
-        guard keychain.hasAPIKey else {
+        guard let provider = AIProviderPreference.effectiveProvider(keychain: keychain) else {
             // No key configured — leave ai_summary as-is; the UI shows the
             // "not generated yet" placeholder in this case.
             return
@@ -82,9 +82,19 @@ public final class NotebookSummaryService: @unchecked Sendable {
 
         var full = ""
         do {
-            let stream = gemini.streamMessage(system: system, messages: [GeminiMessage(role: "user", content: digest)])
-            for try await delta in stream {
-                full += delta
+            switch provider {
+            case .claude:
+                let stream = claude.streamMessage(
+                    system: system,
+                    messages: [ClaudeMessage(role: "user", content: digest)]
+                )
+                for try await delta in stream { full += delta }
+            case .gemini:
+                let stream = gemini.streamMessage(
+                    system: system,
+                    messages: [GeminiMessage(role: "user", content: digest)]
+                )
+                for try await delta in stream { full += delta }
             }
         } catch {
             // Network/API failure — leave the cached summary untouched.
