@@ -15,9 +15,9 @@ struct PaperCardView: View {
     /// 11); drives the accent border/tint. Defaults to false for previews
     /// and any caller that doesn't participate in selection.
     var isSelected: Bool = false
-    /// The full current multi-selection (Session 11), used only to decide
-    /// whether this card's "Delete…" context-menu action should target the
-    /// whole selection or just this one paper.
+    /// The full current multi-selection (Session 11), used to decide whether
+    /// context-menu move/delete actions should target the whole selection or
+    /// just this one paper.
     var selectedIDs: Set<String> = []
     /// Invoked with the id(s) to delete when the user chooses "Delete
     /// Paper…"/"Delete N Papers…" from the context menu; the caller (the
@@ -51,6 +51,11 @@ struct PaperCardView: View {
     /// current selection if this card is part of a multi-card selection,
     /// otherwise just this card's own paper.
     private var idsToDelete: Set<String> {
+        (isSelected && selectedIDs.count > 1) ? selectedIDs : [paper.id]
+    }
+
+    /// Mirrors the selection-aware delete behavior for context-menu moves.
+    private var idsToMove: Set<String> {
         (isSelected && selectedIDs.count > 1) ? selectedIDs : [paper.id]
     }
 
@@ -135,6 +140,7 @@ struct PaperCardView: View {
                     }
                 }
             }
+            PaperMoveMenu(library: library, paperIDs: idsToMove)
             Button("Edit Tags…") {
                 isEditingTags = true
             }
@@ -348,5 +354,69 @@ struct PaperCardView: View {
     private func loadThumbnailImage() -> NSImage? {
         let url = PDFImportService.thumbnailURL(for: paper, in: papersDirectory)
         return ThumbnailImageCache.image(at: url)
+    }
+}
+
+/// A native hierarchical destination menu shared by every paper presentation.
+struct PaperMoveMenu: View {
+    @ObservedObject var library: LibraryViewModel
+    let paperIDs: Set<String>
+
+    private var hasRootNotebooks: Bool {
+        !library.childNotebooks(of: nil).isEmpty
+    }
+
+    var body: some View {
+        Menu("Move to…") {
+            Button("Unfiled") {
+                movePapers(to: nil)
+            }
+
+            if hasRootNotebooks {
+                Divider()
+                NotebookMoveDestinationItems(
+                    library: library,
+                    parentID: nil,
+                    movePapers: movePapers
+                )
+            }
+        }
+    }
+
+    private func movePapers(to notebookID: String?) {
+        for paperID in paperIDs {
+            library.movePaper(paperId: paperID, toNotebook: notebookID)
+        }
+    }
+}
+
+/// Recursively renders notebook children. A notebook with children becomes a
+/// submenu whose first action moves into that notebook, followed by descendants.
+private struct NotebookMoveDestinationItems: View {
+    @ObservedObject var library: LibraryViewModel
+    let parentID: String?
+    let movePapers: (String?) -> Void
+
+    var body: some View {
+        ForEach(library.childNotebooks(of: parentID)) { notebook in
+            let children = library.childNotebooks(of: notebook.id)
+            if children.isEmpty {
+                Button(notebook.name) {
+                    movePapers(notebook.id)
+                }
+            } else {
+                Menu(notebook.name) {
+                    Button("Move Here") {
+                        movePapers(notebook.id)
+                    }
+                    Divider()
+                    NotebookMoveDestinationItems(
+                        library: library,
+                        parentID: notebook.id,
+                        movePapers: movePapers
+                    )
+                }
+            }
+        }
     }
 }

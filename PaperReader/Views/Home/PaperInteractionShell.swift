@@ -16,6 +16,11 @@ struct PaperInteractionShell<Content: View>: View {
         return (isSelected && selection.selectedIDs.count > 1) ? selection.selectedIDs : [paper.id]
     }
 
+    private var idsToMove: Set<String> {
+        let isSelected = selection.isSelected(paper.id)
+        return (isSelected && selection.selectedIDs.count > 1) ? selection.selectedIDs : [paper.id]
+    }
+
     var body: some View {
         content(selection.isSelected(paper.id))
             .contentShape(Rectangle())
@@ -36,6 +41,7 @@ struct PaperInteractionShell<Content: View>: View {
                         }
                     }
                 }
+                PaperMoveMenu(library: library, paperIDs: idsToMove)
                 Divider()
                 Button(idsToDelete.count > 1 ? "Delete \(idsToDelete.count) Papers…" : "Delete Paper…", role: .destructive) {
                     onRequestDelete(idsToDelete)
