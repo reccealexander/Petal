@@ -600,7 +600,7 @@ struct PDFKitWrapper: NSViewRepresentable {
             let connectorLead = 0.15
             let lineDrawDuration = 0.6
             let tagRevealDuration = 0.4
-            let tagHoldDuration = 0.15
+            let tagHoldDuration = 0.7
             let lineEraseDuration = 0.5
             let tagVanishDuration = lineEraseDuration
             let stagger = 0.4          // gap between consecutive highlights
