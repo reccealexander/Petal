@@ -166,7 +166,12 @@ enum HighlightRenderer {
         let width: CGFloat = 52
         let height: CGFloat = 13
         let inset: CGFloat = 4
-        let y = min(max(topRect.midY - height / 2, pageRect.minY + 1), pageRect.maxY - height - 1)
+        let verticalGap: CGFloat = 8
+        // Upper-left of the highlight: in the margin horizontally, and raised above
+        // the highlight's top line (page space is bottom-left origin, so higher y is
+        // up). Clamp so it never runs off the top of the page.
+        let rawY = topRect.maxY + verticalGap
+        let y = min(max(rawY, pageRect.minY + 1), pageRect.maxY - height - 1)
         let leftMargin = topRect.minX - pageRect.minX
         let x: CGFloat = leftMargin >= width + 2 * inset
             ? pageRect.minX + inset
