@@ -75,8 +75,41 @@ public final class NotebookRepository {
 
     /// Deletes a notebook. Nested notebooks cascade-delete (FK ON DELETE CASCADE);
     /// papers in the subtree are orphaned to Unfiled (paper.notebook_id ON DELETE SET NULL).
+    ///
+    /// FK cascade removes descendant notebooks and their notebook-scoped notes,
+    /// but `search_index` has no triggers/FKs and `chat_session` has no FK — so
+    /// the deleted notes' FTS rows and the notebooks' chat sessions would leak.
+    /// Clean both up for the whole subtree in the same transaction (mirrors
+    /// `deletePapers`). Papers are only orphaned, so their notes/comments/
+    /// highlights are untouched.
     public func delete(id: String) throws {
         try dbQueue.write { db in
+            let subtreeIds = try String.fetchAll(
+                db,
+                sql: """
+                WITH RECURSIVE sub(id) AS (
+                    SELECT id FROM notebook WHERE id = :root
+                    UNION
+                    SELECT n.id FROM notebook n JOIN sub s ON n.parent_id = s.id
+                ) SELECT id FROM sub
+                """,
+                arguments: ["root": id]
+            )
+            if !subtreeIds.isEmpty {
+                let placeholders = Array(repeating: "?", count: subtreeIds.count).joined(separator: ", ")
+                let noteIds = try String.fetchAll(
+                    db,
+                    sql: "SELECT id FROM note WHERE notebook_id IN (\(placeholders))",
+                    arguments: StatementArguments(subtreeIds)
+                )
+                for noteId in noteIds {
+                    try SearchIndex.remove(entityId: noteId, in: db)
+                }
+                try db.execute(
+                    sql: "DELETE FROM chat_session WHERE scope = 'notebook' AND scope_id IN (\(placeholders))",
+                    arguments: StatementArguments(subtreeIds)
+                )
+            }
             _ = try Notebook.deleteOne(db, key: id)
         }
     }
@@ -91,7 +124,7 @@ public final class NotebookRepository {
                     sql: """
                     WITH RECURSIVE sub(id) AS (
                         SELECT id FROM notebook WHERE id = :root
-                        UNION ALL
+                        UNION
                         SELECT n.id FROM notebook n JOIN sub s ON n.parent_id = s.id
                     ) SELECT id FROM sub
                     """,
@@ -171,7 +204,7 @@ public final class NotebookRepository {
             sql: """
             WITH RECURSIVE ancestors(id) AS (
                 SELECT id FROM notebook WHERE id = ?
-                UNION ALL
+                UNION
                 SELECT n.parent_id
                 FROM notebook n JOIN ancestors a ON n.id = a.id
                 WHERE n.parent_id IS NOT NULL
@@ -199,7 +232,7 @@ public final class NotebookRepository {
                 sql: """
                 WITH RECURSIVE sub_notebooks(id) AS (
                     SELECT id FROM notebook WHERE id = ?
-                    UNION ALL
+                    UNION
                     SELECT n.id FROM notebook n JOIN sub_notebooks s ON n.parent_id = s.id
                 )
                 SELECT * FROM paper WHERE notebook_id IN (SELECT id FROM sub_notebooks) ORDER BY imported_at DESC
@@ -308,7 +341,7 @@ public final class NotebookRepository {
                 sql: """
                 WITH RECURSIVE sub_notebooks(id) AS (
                     SELECT id FROM notebook WHERE id = ?
-                    UNION ALL
+                    UNION
                     SELECT n.id FROM notebook n JOIN sub_notebooks s ON n.parent_id = s.id
                 )
                 SELECT EXISTS(SELECT 1 FROM paper WHERE notebook_id IN (SELECT id FROM sub_notebooks))

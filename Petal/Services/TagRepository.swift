@@ -1,6 +1,11 @@
 import Foundation
 import GRDB
 
+/// Thrown when a tag name is blank after trimming.
+public enum TagError: Error, Equatable {
+    case blankName
+}
+
 /// Centralizes all database access for tags and their assignment to papers
 /// (spec §1). The view/rendering layer must never touch the DB directly — it
 /// goes through this repository instead.
@@ -94,7 +99,12 @@ public final class TagRepository {
     /// and returns a new one. Must be called from within a write transaction.
     private static func findOrCreateTag(named name: String, in db: Database) throws -> Tag {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let existing = try Tag.fetchOne(db, sql: "SELECT * FROM tag WHERE name = ?", arguments: [trimmed]) {
+        guard !trimmed.isEmpty else { throw TagError.blankName }
+        // Case-insensitive match so "AI"/"ai"/"Ai" resolve to a single tag rather
+        // than fragmenting one concept into duplicate rows.
+        if let existing = try Tag.fetchOne(
+            db, sql: "SELECT * FROM tag WHERE name = ? COLLATE NOCASE", arguments: [trimmed]
+        ) {
             return existing
         }
         var tag = Tag(name: trimmed)

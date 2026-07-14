@@ -136,15 +136,22 @@ final class RepositoryEdgeCaseTests: XCTestCase {
         XCTAssertEqual(try repo.allTags().count, 1)
     }
 
-    func testFindOrCreateTagIsCaseSensitive() throws {
-        // Current behavior: name matching uses BINARY collation, so tags that
-        // differ only in case are DISTINCT rows (the UNIQUE(name) constraint is
-        // also binary, so both coexist). Pinned here to catch any change.
+    func testFindOrCreateTagIsCaseInsensitive() throws {
+        // "AI" and "ai" resolve to one tag (case-insensitive find-or-create), so
+        // a single concept isn't fragmented into duplicate rows.
         let repo = TagRepository(database: manager)
         let upper = try repo.createTag(name: "AI")
         let lower = try repo.createTag(name: "ai")
-        XCTAssertNotEqual(upper.id, lower.id)
-        XCTAssertEqual(try repo.allTags().map(\.name).sorted(), ["AI", "ai"])
+        XCTAssertEqual(upper.id, lower.id)
+        XCTAssertEqual(try repo.allTags().count, 1)
+    }
+
+    func testBlankTagNameIsRejected() throws {
+        let repo = TagRepository(database: manager)
+        XCTAssertThrowsError(try repo.createTag(name: "   ")) { error in
+            XCTAssertEqual(error as? TagError, .blankName)
+        }
+        XCTAssertTrue(try repo.allTags().isEmpty)
     }
 
     func testAddTagDedupesPaperAssignment() throws {
