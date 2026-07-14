@@ -107,9 +107,13 @@ enum HighlightRenderer {
         } else {
             let tokens = sentence.split(whereSeparator: { $0.isWhitespace })
             guard !tokens.isEmpty else { return [] }
+            // Join with `\s*` (not `\s+`) so a sentence still matches when the
+            // page's text layer drops inter-word spaces (common in Wiley/other
+            // journal PDFs, e.g. "MechanicalExfoliationof"). The AI returns
+            // properly spaced sentences; the source page may have no spaces.
             let pattern = tokens
                 .map { NSRegularExpression.escapedPattern(for: String($0)) }
-                .joined(separator: "\\s+")
+                .joined(separator: "\\s*")
             guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
             let whole = NSRange(pageText.startIndex..<pageText.endIndex, in: pageText)
             foundRange = regex.firstMatch(in: pageText, range: whole)?.range
