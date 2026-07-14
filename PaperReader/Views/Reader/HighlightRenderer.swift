@@ -256,6 +256,9 @@ enum HighlightRenderer {
     /// Detaches the given annotations from their pages.
     static func removeAnnotations(_ annotations: [PDFAnnotation]) {
         for annotation in annotations {
+            // Mark hidden before detaching: custom (image-stamp) annotations can
+            // otherwise linger in PDFKit's cached page rendering after removal.
+            annotation.shouldDisplay = false
             annotation.page?.removeAnnotation(annotation)
         }
     }

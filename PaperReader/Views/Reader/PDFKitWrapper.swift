@@ -691,7 +691,14 @@ struct PDFKitWrapper: NSViewRepresentable {
         }
 
         private func removeSweepOverlay() {
+            // Remove the tracked overlay AND any stray SweepOverlayViews. The tag
+            // reveal draws as layers on this overlay; if one is ever left in the
+            // view hierarchy, its "Key Insight" layers linger (and no PDF redraw
+            // can clear them, since they're our subview, not a page annotation).
             sweepOverlay?.removeFromSuperview()
+            pdfView?.subviews
+                .compactMap { $0 as? SweepOverlayView }
+                .forEach { $0.removeFromSuperview() }
             sweepOverlay = nil
             finalizeSweepAction = nil
             sweepBars = []
