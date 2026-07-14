@@ -14,6 +14,16 @@ final class AppearanceManager: ObservableObject {
     private static let aiPanelWidthDefaultsKey = "aiPanelWidth"
     private static let chatFontNameDefaultsKey = "chatFontName"
     private static let chatFontSizeDefaultsKey = "chatFontSize"
+    private static let launchAnimationDefaultsKey = "launchAnimationEnabled"
+
+    /// Reads the "play launch animation" preference straight from UserDefaults,
+    /// for the AppKit-level splash (`SplashWindowController`) which runs before
+    /// any `AppearanceManager` instance exists. Defaults to `true`.
+    static var isLaunchAnimationEnabled: Bool {
+        UserDefaults.standard.object(forKey: launchAnimationDefaultsKey) == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: launchAnimationDefaultsKey)
+    }
 
     enum Appearance: String, CaseIterable, Identifiable {
         case system
@@ -53,6 +63,16 @@ final class AppearanceManager: ObservableObject {
     @Published var showReadingProgress: Bool {
         didSet {
             UserDefaults.standard.set(showReadingProgress, forKey: Self.showReadingProgressDefaultsKey)
+        }
+    }
+
+    /// Whether the "Research Now" launch flower/landing animation plays. When
+    /// off, clicking the splash button opens the main window immediately (the
+    /// intro letter-slide still plays). Read at click time via
+    /// `isLaunchAnimationEnabled`.
+    @Published var launchAnimationEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(launchAnimationEnabled, forKey: Self.launchAnimationDefaultsKey)
         }
     }
 
@@ -103,6 +123,11 @@ final class AppearanceManager: ObservableObject {
             self.showReadingProgress = true
         } else {
             self.showReadingProgress = UserDefaults.standard.bool(forKey: Self.showReadingProgressDefaultsKey)
+        }
+        if UserDefaults.standard.object(forKey: Self.launchAnimationDefaultsKey) == nil {
+            self.launchAnimationEnabled = true
+        } else {
+            self.launchAnimationEnabled = UserDefaults.standard.bool(forKey: Self.launchAnimationDefaultsKey)
         }
         if UserDefaults.standard.object(forKey: Self.aiPanelWidthDefaultsKey) == nil {
             self.aiPanelWidth = 340

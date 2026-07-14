@@ -196,6 +196,12 @@ private struct AppearanceSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            Toggle("Play launch animation", isOn: $appearance.launchAnimationEnabled)
+
+            Text("When off, “Research Now” opens the library immediately (the opening “Petal.” letters still play).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Divider()
 
             Text("Chat font")

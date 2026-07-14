@@ -260,6 +260,13 @@ enum SplashWindowController {
         guard !bloomStarted else { return }
         bloomStarted = true
 
+        // Launch animation turned off in Preferences → open the library
+        // immediately. The intro letter-slide already played on show().
+        if !AppearanceManager.isLaunchAnimationEnabled {
+            fireResearchNow()
+            return
+        }
+
         guard let splash = window,
               let contentView = splash.contentView,
               let rootLayer = contentView.layer,
