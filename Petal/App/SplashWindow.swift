@@ -608,6 +608,37 @@ enum SplashWindowController {
             return
         }
 
+        // Center the bloomed flower on the CENTER of where the main window will
+        // appear BEFORE launching any petals, so they shoot off symmetrically
+        // from that center. The flower is fixed in the (now-transparent) splash
+        // content, so gliding the splash window by the delta moves the flower
+        // there with no layer reflow or clipping; then run the petal landing.
+        let windowCenter = CGPoint(x: mainFrame.midX, y: mainFrame.midY)
+        let delta = CGPoint(x: windowCenter.x - bloomFlowerCenterScreen.x,
+                            y: windowCenter.y - bloomFlowerCenterScreen.y)
+        guard abs(delta.x) > 0.5 || abs(delta.y) > 0.5 else {
+            // Already centered — go straight to the petals.
+            runPetalLanding(splash: splash, mainFrame: mainFrame)
+            return
+        }
+        let recenterOrigin = NSPoint(x: splash.frame.origin.x + delta.x,
+                                     y: splash.frame.origin.y + delta.y)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.35
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            splash.animator().setFrameOrigin(recenterOrigin)
+        } completionHandler: {
+            MainActor.assumeIsolated {
+                bloomFlowerCenterScreen = windowCenter
+                runPetalLanding(splash: splash, mainFrame: mainFrame)
+            }
+        }
+    }
+
+    /// Runs the petal-to-window landing once the flower sits on the main-window
+    /// center: the four diagonal petals fly out to the window corners, dissolve
+    /// into spills that fill the rect, then crossfade to the real main window.
+    private static func runPetalLanding(splash: NSWindow, mainFrame: NSRect) {
         // Gracefully bow the bloomed flower + pistil out as the fill takes over.
         if let flower = bloomFlowerLayer { fadeOutLayer(flower, duration: 0.3) }
         if let pistil = bloomPistilLayer { fadeOutLayer(pistil, duration: 0.3) }
