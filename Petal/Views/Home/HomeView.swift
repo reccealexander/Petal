@@ -212,7 +212,7 @@ private struct LibraryContentView: View {
             }
         }
         .background {
-            // App-local Shift+` shortcut: active only while Paper Reader's
+            // App-local Shift+` shortcut: active only while Petal's
             // main window is key; this is intentionally not a global hotkey.
             Button("Global Search") { isSearchOverlayVisible = true }
                 .keyboardShortcut("`", modifiers: .shift)
