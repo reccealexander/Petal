@@ -290,19 +290,32 @@ enum SplashWindowController {
         // on the target so the flower has 360° of room without clipping.
         let originalWidth = contentView.bounds.width
         let periodInWindow = titleContainer.convert(bloomDotAnchor, to: nil)
-        let flowerDrop: CGFloat = 30 // sit a little below the text line
-        let targetInWindow = CGPoint(x: originalWidth / 2,
-                                     y: periodInWindow.y - flowerDrop)
+        let flowerDrop: CGFloat = 30 // fallback: sit a little below the text line
+        let fallbackTargetInWindow = CGPoint(x: originalWidth / 2,
+                                             y: periodInWindow.y - flowerDrop)
         let periodOnScreen = splash.convertPoint(toScreen: periodInWindow)
-        let targetOnScreen = splash.convertPoint(toScreen: targetInWindow)
+        // Bloom directly at the CENTER of where the main window will appear, so
+        // the period slides straight to that center and the flower needs no
+        // later drift. Fall back to the splash-center-below-text spot if the
+        // main-window frame isn't known yet.
+        let targetOnScreen: CGPoint
+        if let mainFrame = mainWindowFrame() {
+            targetOnScreen = CGPoint(x: mainFrame.midX, y: mainFrame.midY)
+        } else {
+            targetOnScreen = splash.convertPoint(toScreen: fallbackTargetInWindow)
+        }
 
+        // The canvas must contain BOTH the period's start (up in the wordmark)
+        // and the flower's bloom center (the window center), each with a full
+        // half-side of room so the period slide-in and the 360° bloom never clip.
         let side = bloomCanvasSide
-        let newFrame = NSRect(
-            x: targetOnScreen.x - side / 2,
-            y: targetOnScreen.y - side / 2,
-            width: side,
-            height: side
+        let span = NSRect(
+            x: min(periodOnScreen.x, targetOnScreen.x),
+            y: min(periodOnScreen.y, targetOnScreen.y),
+            width: abs(targetOnScreen.x - periodOnScreen.x),
+            height: abs(targetOnScreen.y - periodOnScreen.y)
         )
+        let newFrame = span.insetBy(dx: -side / 2, dy: -side / 2)
         let oldOrigin = splash.frame.origin
 
         CATransaction.begin()
@@ -608,103 +621,10 @@ enum SplashWindowController {
             return
         }
 
-        // Center the bloomed flower on the CENTER of where the main window will
-        // appear BEFORE launching petals, so they shoot off symmetrically from
-        // that center. This is a GPU-smooth Core Animation drift of the flower
-        // LAYERS (not a laggy window-frame animation): enlarge the transparent
-        // canvas so it contains both the current flower and the window center,
-        // then animate the flower + pistil `position` there over ~0.3s.
-        let windowCenter = CGPoint(x: mainFrame.midX, y: mainFrame.midY)
-        let delta = CGPoint(x: windowCenter.x - bloomFlowerCenterScreen.x,
-                            y: windowCenter.y - bloomFlowerCenterScreen.y)
-        guard abs(delta.x) > 0.5 || abs(delta.y) > 0.5 else {
-            // Already centered — go straight to the petals.
-            runPetalLanding(splash: splash, mainFrame: mainFrame)
-            return
-        }
-        guard let contentView = splash.contentView,
-              bloomFlowerLayer != nil || bloomPistilLayer != nil else {
-            // Can't drift (no layers) — still launch the petals from the
-            // window center so the fill lands correctly.
-            bloomFlowerCenterScreen = windowCenter
-            runPetalLanding(splash: splash, mainFrame: mainFrame)
-            return
-        }
-
-        // Enlarge the splash canvas to comfortably contain BOTH the current
-        // flower and the window center, plus the flower's reach as margin, so
-        // the drifting flower never clips against the window bounds. Same
-        // instantaneous canvas-swap technique the bloom uses: resize with
-        // actions disabled and compensate positions so nothing visibly jumps.
-        let flowerReach: CGFloat = 160
-        let minX = min(bloomFlowerCenterScreen.x, windowCenter.x) - flowerReach
-        let maxX = max(bloomFlowerCenterScreen.x, windowCenter.x) + flowerReach
-        let minY = min(bloomFlowerCenterScreen.y, windowCenter.y) - flowerReach
-        let maxY = max(bloomFlowerCenterScreen.y, windowCenter.y) + flowerReach
-        let newFrame = NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-        let oldOrigin = splash.frame.origin
-
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        splash.setFrame(newFrame, display: false)
-        // frameDelta keeps content screen-stationary: newOrigin + (p + frameDelta)
-        // == oldOrigin + p.
-        let frameDelta = CGPoint(x: oldOrigin.x - newFrame.origin.x,
-                                 y: oldOrigin.y - newFrame.origin.y)
-        // Subviews (the hidden title/button) shift via their frames…
-        for subview in contentView.subviews {
-            subview.setFrameOrigin(NSPoint(x: subview.frame.origin.x + frameDelta.x,
-                                           y: subview.frame.origin.y + frameDelta.y))
-        }
-        // …but the flower + pistil are SUBLAYERS of the content view's layer,
-        // not subviews, so the loop above misses them — shift their positions
-        // by the same delta so they stay put through the resize.
-        if let flower = bloomFlowerLayer {
-            flower.position = CGPoint(x: flower.position.x + frameDelta.x,
-                                      y: flower.position.y + frameDelta.y)
-        }
-        if let pistil = bloomPistilLayer {
-            pistil.position = CGPoint(x: pistil.position.x + frameDelta.x,
-                                      y: pistil.position.y + frameDelta.y)
-        }
-        CATransaction.commit()
-
-        // Smoothly drift the flower + pistil to the window center (content
-        // coords), then immediately launch the petals — no lingering hold.
-        let windowCenterContent = CGPoint(x: windowCenter.x - newFrame.minX,
-                                          y: windowCenter.y - newFrame.minY)
-        CATransaction.begin()
-        CATransaction.setCompletionBlock {
-            MainActor.assumeIsolated {
-                bloomFlowerCenterScreen = windowCenter
-                runPetalLanding(splash: splash, mainFrame: mainFrame)
-            }
-        }
-        for layer in [bloomFlowerLayer, bloomPistilLayer].compactMap({ $0 }) {
-            driftLayer(layer, to: windowCenterContent, duration: 0.3)
-        }
-        CATransaction.commit()
-    }
-
-    /// Smoothly animates a layer's `position` to `target` over `duration`
-    /// (ease-in-out), setting the model value so it stays put after the
-    /// animation is removed. Uses `position.x`/`position.y` to avoid CGPoint
-    /// value-boxing ambiguity.
-    private static func driftLayer(_ layer: CALayer, to target: CGPoint, duration: CFTimeInterval) {
-        let from = layer.position
-        layer.position = target
-        let moveX = CABasicAnimation(keyPath: "position.x")
-        moveX.fromValue = from.x
-        moveX.toValue = target.x
-        let moveY = CABasicAnimation(keyPath: "position.y")
-        moveY.fromValue = from.y
-        moveY.toValue = target.y
-        let group = CAAnimationGroup()
-        group.animations = [moveX, moveY]
-        group.duration = duration
-        group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        group.isRemovedOnCompletion = true
-        layer.add(group, forKey: "recenterDrift")
+        // The flower already bloomed at the main-window center (beginBloom
+        // slides the PERIOD there before it grows), so launch the petals straight
+        // from that center — no later flower drift needed.
+        runPetalLanding(splash: splash, mainFrame: mainFrame)
     }
 
     /// Runs the petal-to-window landing once the flower sits on the main-window
