@@ -102,9 +102,7 @@ enum HighlightRenderer {
         pill.fill()
 
         let fontSize = size.height * 0.62
-        let font = NSFont(name: "Times New Roman", size: fontSize)
-            ?? NSFont(name: "Times", size: fontSize)
-            ?? NSFont.systemFont(ofSize: fontSize)
+        let font = NSFont.systemFont(ofSize: fontSize, weight: .semibold)
         let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font, .foregroundColor: NSColor.white, .paragraphStyle: paragraph

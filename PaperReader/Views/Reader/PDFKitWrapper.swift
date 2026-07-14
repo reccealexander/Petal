@@ -597,6 +597,16 @@ struct PDFKitWrapper: NSViewRepresentable {
                 guard !Task.isCancelled, let self,
                       self.model.isAIAssistModeActive
                 else { return }
+                // `pageChanged` already renders an already-fetched page's
+                // highlights immediately. The debounce exists only to FETCH pages
+                // we haven't seen yet; re-running render on a fetched page would
+                // remove and re-add its annotations, flickering the highlights a
+                // beat after switching pages. So skip when already fetched.
+                if let pdfView = self.pdfView, let document = pdfView.document,
+                   let page = pdfView.currentPage,
+                   self.fetchedPages.contains(document.index(for: page)) {
+                    return
+                }
                 self.fetchOrRenderCurrentPage()
             }
         }
