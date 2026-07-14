@@ -46,6 +46,20 @@ enum SplashWindowController {
     private static var bloomDotAnchor: CGPoint = .zero
     private static var bloomDotDiameter: CGFloat = 6
 
+    // MARK: Landing-transition state (petals fly to the main-window corners
+    // and spill/fill the window rect, then crossfade to the live UI).
+
+    /// The flower center in SCREEN coordinates (captured at bloom time) — the
+    /// launch point for the corner petals.
+    private static var bloomFlowerCenterScreen: CGPoint = .zero
+    /// The bloomed flower and pistil layers, faded out as the fill takes over.
+    private static weak var bloomFlowerLayer: CALayer?
+    private static weak var bloomPistilLayer: CALayer?
+    /// Dedicated transparent overlay window hosting the landing transition.
+    private static var transitionWindow: NSWindow?
+    /// Re-entrancy guard so the landing transition runs at most once.
+    private static var landingStarted = false
+
     /// Whether the splash window is currently shown.
     static var isActive: Bool { window != nil }
 
@@ -176,6 +190,7 @@ enum SplashWindowController {
         pendingResearchNow = onResearchNow
         bloomStarted = false
         hasFiredResearchNow = false
+        landingStarted = false
         bloomTitleContainer = titleContainer
         bloomButton = button
 
@@ -304,6 +319,9 @@ enum SplashWindowController {
         let periodStart = CGPoint(x: periodOnScreen.x - newFrame.minX,
                                   y: periodOnScreen.y - newFrame.minY)
 
+        // Remember the flower center in SCREEN space for the landing transition.
+        bloomFlowerCenterScreen = targetOnScreen
+
         // --- 2. Build the flower ---------------------------------------------
         // Petals live in a zero-bounds container at the flower center, inserted
         // BELOW everything; the pistil is added ABOVE so the recentered period
@@ -312,6 +330,7 @@ enum SplashWindowController {
         flowerLayer.position = flowerCenter
         flowerLayer.bounds = .zero
         flowerLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        bloomFlowerLayer = flowerLayer
 
         // All 16 petals are identical in size; ring 2 differs only by its
         // half-step angular interleave and by rendering behind ring 1.
@@ -388,6 +407,7 @@ enum SplashWindowController {
         detail.addSublayer(core)
         pistil.addSublayer(detail)
         rootLayer.addSublayer(pistil)
+        bloomPistilLayer = pistil
 
         // --- 3. Choreography (sequenced) -------------------------------------
         //  t 0.00–0.40  the period slides from its spot to the flower center
@@ -416,10 +436,11 @@ enum SplashWindowController {
         CATransaction.begin()
         CATransaction.setCompletionBlock {
             MainActor.assumeIsolated {
-                // Let the completed flower register for a beat before the
-                // main window appears.
+                // Let the completed flower register for a beat, then hand off
+                // to the landing transition (petals fly to the main-window
+                // corners, spill and fill it, and crossfade to the live UI).
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                    MainActor.assumeIsolated { fireResearchNow() }
+                    MainActor.assumeIsolated { beginLandingTransition() }
                 }
             }
         }
@@ -515,10 +536,12 @@ enum SplashWindowController {
 
         CATransaction.commit()
 
-        // Safety net: if the transaction completion is ever short-circuited
-        // (layers torn down, window closed early), still reveal the main
-        // window. `fireResearchNow`'s guard makes double-firing impossible.
-        DispatchQueue.main.asyncAfter(deadline: .now() + bloomEnd + 0.9) {
+        // Safety net: if the transaction completion (and the landing
+        // transition it triggers) is ever short-circuited, still reveal the
+        // main window. `fireResearchNow`'s guard makes double-firing
+        // impossible; the deadline sits comfortably past the whole bloom +
+        // 0.25s hold + landing transition.
+        DispatchQueue.main.asyncAfter(deadline: .now() + bloomEnd + 3.4) {
             MainActor.assumeIsolated { fireResearchNow() }
         }
     }
@@ -530,6 +553,299 @@ enum SplashWindowController {
         let action = pendingResearchNow
         pendingResearchNow = nil
         action?()
+    }
+
+    // MARK: - Landing transition (flower → main window)
+
+    /// Runs after the bloom: the four front-ring diagonal petals fly out one by
+    /// one to the four corners of where the main window will appear; each
+    /// dissolves at its corner into a pink "spill" that grows to fill that
+    /// quadrant; the four spills merge into a full pink window rect, settle to
+    /// the window background color, and then crossfade to the real main window
+    /// (which is revealed behind a floating transparent overlay). Reveals
+    /// exactly once (`fireResearchNow`). If the main-window frame can't be
+    /// found, falls back to an immediate reveal so the user is never stranded.
+    private static func beginLandingTransition() {
+        guard !landingStarted else { return }
+        landingStarted = true
+
+        guard let splash = window,
+              let mainFrame = mainWindowFrame() else {
+            fireResearchNow()
+            return
+        }
+
+        // Gracefully bow the bloomed flower + pistil out as the fill takes over.
+        if let flower = bloomFlowerLayer { fadeOutLayer(flower, duration: 0.3) }
+        if let pistil = bloomPistilLayer { fadeOutLayer(pistil, duration: 0.3) }
+
+        // Overlay window: a transparent, floating, click-through canvas that
+        // covers the union of the splash and the main-window frame, padded so a
+        // petal parked at a corner (pointing outward) never clips. Its content
+        // coordinate space is y-up with origin at the window's bottom-left, so a
+        // screen point maps to content by subtracting the frame origin.
+        let pad: CGFloat = 150
+        let overlayFrame = splash.frame.union(mainFrame).insetBy(dx: -pad, dy: -pad)
+
+        let overlay = NSWindow(
+            contentRect: NSRect(origin: overlayFrame.origin, size: overlayFrame.size),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        overlay.isReleasedWhenClosed = false
+        overlay.isOpaque = false
+        overlay.backgroundColor = .clear
+        overlay.hasShadow = false
+        overlay.level = .floating
+        overlay.ignoresMouseEvents = true
+
+        let overlayView = NSView(frame: NSRect(origin: .zero, size: overlayFrame.size))
+        overlayView.wantsLayer = true
+        overlayView.layer?.backgroundColor = NSColor.clear.cgColor
+        overlay.contentView = overlayView
+
+        guard let root = overlayView.layer else {
+            fireResearchNow()
+            return
+        }
+        overlay.orderFrontRegardless()
+        transitionWindow = overlay
+
+        let origin = overlayFrame.origin
+        let flowerC = CGPoint(x: bloomFlowerCenterScreen.x - origin.x,
+                              y: bloomFlowerCenterScreen.y - origin.y)
+        let mainRectC = CGRect(x: mainFrame.minX - origin.x,
+                               y: mainFrame.minY - origin.y,
+                               width: mainFrame.width, height: mainFrame.height)
+
+        let geometry = landingGeometry(mainRect: mainRectC, flowerCenter: flowerC)
+
+        // --- Timeline --------------------------------------------------------
+        let now = CACurrentMediaTime()
+        let flyStagger: CFTimeInterval = 0.16
+        let flyDuration: CFTimeInterval = 0.30
+        let spillDuration: CFTimeInterval = 0.36
+        let petalLength: CGFloat = 118
+        let petalWidth: CGFloat = 46
+        let pinkColor = NSColor.systemPink.cgColor
+        let petalShape = petalPath(length: petalLength, width: petalWidth)
+
+        var lastSpillEnd: CFTimeInterval = 0
+        for (index, entry) in geometry.enumerated() {
+            let stagger = CFTimeInterval(index) * flyStagger
+
+            // Spill (added first → beneath the petals). Grows from the corner to
+            // fill its quadrant just as the petal dissolves there.
+            let spill = makeSpillLayer(quadrant: entry.quadrant,
+                                       corner: entry.corner, color: pinkColor)
+            root.addSublayer(spill)
+            let spillBegin = stagger + flyDuration * 0.72
+            spill.add(spillGrowAnimation(beginTime: now + spillBegin,
+                                         duration: spillDuration), forKey: "spill")
+            lastSpillEnd = max(lastSpillEnd, spillBegin + spillDuration)
+
+            // Petal: fresh copy at the flower center, oriented toward its
+            // corner, flies out and dissolves. Model = (at corner, opacity 0).
+            let petal = CAShapeLayer()
+            petal.path = petalShape
+            petal.fillColor = pinkColor
+            petal.bounds = CGRect(x: -petalWidth / 2, y: 0, width: petalWidth, height: petalLength)
+            petal.anchorPoint = CGPoint(x: 0.5, y: 0)
+            petal.transform = CATransform3DMakeRotation(entry.petalRotation, 0, 0, 1)
+            petal.position = entry.corner
+            petal.opacity = 0
+            petal.shadowColor = NSColor.black.cgColor
+            petal.shadowOpacity = 0.22
+            petal.shadowRadius = 2.5
+            petal.shadowOffset = CGSize(width: 0, height: -1.5)
+            petal.shadowPath = petalShape
+            root.addSublayer(petal)
+            petal.add(petalFlyAnimation(from: flowerC, to: entry.corner,
+                                        beginTime: now + stagger,
+                                        duration: flyDuration), forKey: "fly")
+        }
+
+        // Settle: a window-colored fill fades in over the full pink rect once
+        // all four quadrants are filled — a bridge from pink to the real UI.
+        let settleBegin = lastSpillEnd + 0.05
+        let settleDuration: CFTimeInterval = 0.28
+        let windowFill = CAShapeLayer()
+        windowFill.path = CGPath(rect: mainRectC, transform: nil)
+        windowFill.fillColor = NSColor.windowBackgroundColor.cgColor
+        windowFill.opacity = 1 // model final (held after fade-in)
+        root.addSublayer(windowFill)
+        let settle = CABasicAnimation(keyPath: "opacity")
+        settle.fromValue = 0
+        settle.toValue = 1
+        settle.beginTime = now + settleBegin
+        settle.duration = settleDuration
+        settle.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        settle.fillMode = .backwards
+        settle.isRemovedOnCompletion = false
+        windowFill.add(settle, forKey: "settle")
+
+        // Handoff: reveal the real main window (behind the floating overlay),
+        // then crossfade the overlay out to expose the live UI, then close it.
+        let handoffDelay = settleBegin + settleDuration
+        DispatchQueue.main.asyncAfter(deadline: .now() + handoffDelay) {
+            MainActor.assumeIsolated {
+                fireResearchNow()
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.4
+                    overlay.animator().alphaValue = 0
+                } completionHandler: {
+                    MainActor.assumeIsolated {
+                        overlay.close()
+                        if transitionWindow === overlay { transitionWindow = nil }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Locates the hidden main SwiftUI window (id "main-library" / title
+    /// "PaperReader"), returning its screen frame — the target the petals fly
+    /// to. Falls through progressively looser heuristics; returns nil if no
+    /// plausible main window exists yet (caller then reveals immediately).
+    private static func mainWindowFrame() -> NSRect? {
+        let candidates = NSApp.windows.filter { window in
+            !isSplashWindow(window) && window !== transitionWindow
+        }
+        if let byID = candidates.first(where: {
+            $0.identifier?.rawValue == "main-library" && $0.frame.width > 200
+        }) {
+            return byID.frame
+        }
+        if let byTitle = candidates.first(where: {
+            $0.title == "PaperReader" && $0.frame.width > 200
+        }) {
+            return byTitle.frame
+        }
+        if let byShape = candidates.first(where: {
+            $0.styleMask.contains(.titled) && $0.frame.width > 300 && $0.frame.height > 200
+        }) {
+            return byShape.frame
+        }
+        return nil
+    }
+
+    /// Fades a layer to fully transparent and leaves it there (model opacity 0),
+    /// so a bloomed element can bow out without snapping back.
+    private static func fadeOutLayer(_ layer: CALayer, duration: CFTimeInterval) {
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = layer.presentation()?.opacity ?? layer.opacity
+        fade.toValue = 0
+        fade.duration = duration
+        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        fade.fillMode = .forwards
+        fade.isRemovedOnCompletion = false
+        layer.opacity = 0
+        layer.add(fade, forKey: "bowOut")
+    }
+
+    /// Computes petal-landing geometry in a y-up (non-flipped) coordinate
+    /// space. Returns exactly four entries in launch order — top-right,
+    /// top-left, bottom-left, bottom-right. For each: the matching `mainRect`
+    /// corner, the quadrant of `mainRect` adjacent to that corner (rect split
+    /// at its center; each quarter is half-width by half-height), and the
+    /// z-rotation (radians) to aim a +y-pointing petal from `flowerCenter`
+    /// toward that corner.
+    private static func landingGeometry(mainRect: CGRect, flowerCenter: CGPoint)
+        -> [(corner: CGPoint, quadrant: CGRect, petalRotation: CGFloat)] {
+        let minX = mainRect.minX
+        let maxX = mainRect.maxX
+        let minY = mainRect.minY
+        let maxY = mainRect.maxY
+        let midX = mainRect.midX
+        let midY = mainRect.midY
+        let halfWidth = mainRect.width / 2
+        let halfHeight = mainRect.height / 2
+
+        let corners: [CGPoint] = [
+            CGPoint(x: maxX, y: maxY), // top-right
+            CGPoint(x: minX, y: maxY), // top-left
+            CGPoint(x: minX, y: minY), // bottom-left
+            CGPoint(x: maxX, y: minY), // bottom-right
+        ]
+        let quadrants: [CGRect] = [
+            CGRect(x: midX, y: midY, width: halfWidth, height: halfHeight), // top-right
+            CGRect(x: minX, y: midY, width: halfWidth, height: halfHeight), // top-left
+            CGRect(x: minX, y: minY, width: halfWidth, height: halfHeight), // bottom-left
+            CGRect(x: midX, y: minY, width: halfWidth, height: halfHeight), // bottom-right
+        ]
+        return zip(corners, quadrants).map { corner, quadrant in
+            let petalRotation = atan2(corner.y - flowerCenter.y,
+                                      corner.x - flowerCenter.x) - CGFloat.pi / 2
+            return (corner: corner, quadrant: quadrant, petalRotation: petalRotation)
+        }
+    }
+
+    /// The "petal flies to the corner and dissolves" animation. The petal
+    /// layer's model state is already (position = `corner`, opacity = 0). This
+    /// group shows it parked at `start`, opaque, until `beginTime` (via
+    /// `.backwards` fill), then flies it to `corner` while fading over the final
+    /// ~30% of the flight. Landing exactly on the model values means removal
+    /// causes no snap. `beginTime` is absolute (CACurrentMediaTime() + delay).
+    private static func petalFlyAnimation(from start: CGPoint, to corner: CGPoint,
+        beginTime: CFTimeInterval, duration: CFTimeInterval) -> CAAnimationGroup {
+        let moveX = CABasicAnimation(keyPath: "position.x")
+        moveX.fromValue = start.x
+        moveX.toValue = corner.x
+
+        let moveY = CABasicAnimation(keyPath: "position.y")
+        moveY.fromValue = start.y
+        moveY.toValue = corner.y
+
+        let fade = CAKeyframeAnimation(keyPath: "opacity")
+        fade.values = [1.0, 1.0, 0.0]
+        fade.keyTimes = [0.0, 0.7, 1.0]
+        fade.timingFunctions = [
+            CAMediaTimingFunction(name: .easeOut),
+            CAMediaTimingFunction(name: .easeOut)
+        ]
+
+        let group = CAAnimationGroup()
+        group.animations = [moveX, moveY, fade]
+        group.duration = duration
+        group.beginTime = beginTime
+        // Slow-then-fast entry launches the petal outward, then decelerates
+        // into a soft settle at the corner.
+        group.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0.0, 0.2, 1.0)
+        group.fillMode = .backwards
+        group.isRemovedOnCompletion = true
+        return group
+    }
+
+    /// Builds a quadrant-filling shape layer pre-configured to grow from
+    /// `corner`: at model scale 1 it exactly covers `quadrant`, and its
+    /// `anchorPoint` is pinned to the normalized location of `corner` (0 or 1
+    /// on each axis, since `corner` is a corner of `quadrant`), so a 0→1 scale
+    /// spreads the rect outward from that corner.
+    private static func makeSpillLayer(quadrant: CGRect, corner: CGPoint, color: CGColor) -> CAShapeLayer {
+        let layer = CAShapeLayer()
+        let anchorX = quadrant.width > 0 ? (corner.x - quadrant.minX) / quadrant.width : 0
+        let anchorY = quadrant.height > 0 ? (corner.y - quadrant.minY) / quadrant.height : 0
+        layer.anchorPoint = CGPoint(x: anchorX, y: anchorY)
+        layer.bounds = CGRect(origin: .zero, size: quadrant.size)
+        layer.position = corner
+        layer.path = CGPath(rect: CGRect(origin: .zero, size: quadrant.size), transform: nil)
+        layer.fillColor = color
+        return layer
+    }
+
+    /// A held-collapsed grow animation that scales a spill from nothing to full
+    /// size. `.backwards` fill keeps it invisible (scale 0) until `beginTime`;
+    /// removal on completion leaves the model scale of 1 in place (no snap).
+    /// `beginTime` is absolute (CACurrentMediaTime() + delay).
+    private static func spillGrowAnimation(beginTime: CFTimeInterval, duration: CFTimeInterval) -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: "transform.scale")
+        animation.fromValue = 0.0
+        animation.toValue = 1.0
+        animation.beginTime = beginTime
+        animation.duration = duration
+        animation.fillMode = .backwards
+        animation.isRemovedOnCompletion = true
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        return animation
     }
 
     /// Builds one petal as a base-anchored `CAShapeLayer`: the petal path
