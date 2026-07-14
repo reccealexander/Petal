@@ -456,8 +456,10 @@ enum SplashWindowController {
         slide.isRemovedOnCompletion = true
         pistil.add(slide, forKey: "slide")
 
-        // (B) Grow + spin, held dot-sized (via backwards fill) until the slide
-        // finishes, so growth is its own beat after the translate.
+        // (B) Grow, held dot-sized (via backwards fill) until the slide
+        // finishes, so growth is its own beat after the translate. The spin is
+        // a separate, longer animation (below) so the pistil keeps turning
+        // through the whole petal bloom rather than settling after the grow.
         let startScale = max(bloomDotDiameter / (2 * pistilRadius), 0.1)
         let pistilGrow = CAKeyframeAnimation(keyPath: "transform.scale")
         pistilGrow.values = [startScale, 1.06, 1.0]
@@ -466,17 +468,28 @@ enum SplashWindowController {
             CAMediaTimingFunction(name: .easeOut),
             CAMediaTimingFunction(name: .easeInEaseOut)
         ]
+        pistilGrow.duration = growDuration
+        pistilGrow.beginTime = now + growBegin
+        pistilGrow.fillMode = .backwards
+        pistilGrow.isRemovedOnCompletion = true
+        pistil.add(pistilGrow, forKey: "grow")
+
+        // Continuous spin: one steady clockwise rotation at constant angular
+        // speed (linear) from the moment the pistil starts growing until the
+        // last petal settles. `transform.scale` and `transform.rotation.z` are
+        // independent keypath animations that compose on the same layer. The
+        // total sweep is a whole number of turns (2), so when the animation is
+        // removed the presentation already matches the model (rotation 0) and
+        // there is no snap. Angular speed ≈ 2 turns / (bloomEnd − growBegin).
+        let spinTurns: CGFloat = 2
         let pistilSpin = CABasicAnimation(keyPath: "transform.rotation.z")
-        pistilSpin.fromValue = -CGFloat.pi * 0.9 // unwinds to 0 as it grows
-        pistilSpin.toValue = 0
-        let pistilMove = CAAnimationGroup()
-        pistilMove.animations = [pistilGrow, pistilSpin]
-        pistilMove.duration = growDuration
-        pistilMove.beginTime = now + growBegin
-        pistilMove.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        pistilMove.fillMode = .backwards
-        pistilMove.isRemovedOnCompletion = true
-        pistil.add(pistilMove, forKey: "grow")
+        pistilSpin.fromValue = 0
+        pistilSpin.toValue = -CGFloat.pi * 2 * spinTurns // negative = clockwise
+        pistilSpin.duration = bloomEnd - growBegin
+        pistilSpin.beginTime = now + growBegin
+        pistilSpin.timingFunction = CAMediaTimingFunction(name: .linear)
+        pistilSpin.isRemovedOnCompletion = true
+        pistil.add(pistilSpin, forKey: "spin")
 
         // Disc color: dark (the period's ink) → yellow, during the grow beat.
         let colorMorph = CABasicAnimation(keyPath: "fillColor")
