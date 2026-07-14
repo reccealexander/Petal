@@ -102,6 +102,24 @@ public struct QuickActionContext: Sendable {
 /// it is. Kept free of SwiftUI/DB so the templates are unit-testable and
 /// live in exactly one place (spec: "prompt templates ONLY in this file").
 public enum QuickActionPrompts {
+    /// System prompt used when selecting verbatim key-idea sentences from a
+    /// single page of a scientific paper.
+    public static let keyIdeaSystemPrompt =
+        "Identify the key-idea sentences on a single page of a scientific paper."
+
+    /// Builds the tightly constrained request used for page-level key ideas.
+    public static func keyIdeaUserMessage(pageText: String) -> String {
+        """
+        Return the 1-5 sentences that best capture this page's key ideas, copied VERBATIM from the text. Each sentence must be an exact substring: do not paraphrase or add or remove words. Do not use quotation marks or numbering.
+
+        Output ONE sentence per line and NOTHING else.
+        If the page has no substantive key ideas (for example, references, figures, or boilerplate), return NOTHING (an empty response).
+
+        Page text:
+        \(pageText)
+        """
+    }
+
     /// The composed user message for `action` given `context`, or `nil` if
     /// the action isn't available (the caller should show `unavailableReason`
     /// instead of sending anything).
