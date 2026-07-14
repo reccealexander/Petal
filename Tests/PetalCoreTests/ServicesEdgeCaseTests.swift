@@ -137,17 +137,10 @@ final class ServicesEdgeCaseTests: XCTestCase {
         )
     }
 
-    func testZeroLimitReturnsEverythingRatherThanNothing() {
-        // Characterization of a fragile guard: the loop breaks on
-        // `result.count == limit`, so limit == 0 never triggers the break and
-        // ALL lines are returned. Production only ever passes 5 or 25, but a
-        // 0 limit silently means "no cap" instead of "no results". Tracked as
-        // a robustness bug in the report.
+    func testZeroLimitReturnsNothing() {
+        // The cap now uses `>= limit`, so limit == 0 correctly means "no results".
         let text = "One.\nTwo.\nThree."
-        XCTAssertEqual(
-            KeyIdeaSuggestionService.parseKeyIdeas(from: text, limit: 0),
-            ["One.", "Two.", "Three."]
-        )
+        XCTAssertEqual(KeyIdeaSuggestionService.parseKeyIdeas(from: text, limit: 0), [])
     }
 
     // MARK: - TagSuggestionService.parseTags
@@ -188,13 +181,11 @@ final class ServicesEdgeCaseTests: XCTestCase {
         XCTAssertEqual(TagSuggestionService.parseTags(from: text), ["ai"])
     }
 
-    func testNumberedListPrefixLeaksIntoTags() {
-        // BUG characterization: unlike parseKeyIdeas, parseTags does NOT strip
-        // a leading "1." / "2." enumerator (digits aren't in its trim set), so
-        // a numbered reply pollutes every tag with its ordinal. Bulleted
-        // replies (previous test) are cleaned; numbered ones are not.
-        let text = "1. ai\n2. ml"
-        XCTAssertEqual(TagSuggestionService.parseTags(from: text), ["1. ai", "2. ml"])
+    func testNumberedListPrefixStrippedFromTags() {
+        // parseTags now strips a leading "1." / "2)" enumerator, like parseKeyIdeas.
+        XCTAssertEqual(TagSuggestionService.parseTags(from: "1. ai\n2. ml"), ["ai", "ml"])
+        XCTAssertEqual(TagSuggestionService.parseTags(from: "1) deep learning, 2) nlp"),
+                       ["deep learning", "nlp"])
     }
 
     func testEmptyTagInputYieldsEmptyList() {

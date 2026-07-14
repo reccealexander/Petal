@@ -28,15 +28,37 @@ public final class ChatSessionRepository {
         self.dbQueue = database.dbQueue
     }
 
+    /// ISO-8601 with fractional seconds, so chat-message timestamps keep the
+    /// millisecond precision every other date in the app is stored at (plain
+    /// `.iso8601` drops the fractional part, collapsing same-second messages).
+    // ISO8601DateFormatter is thread-safe for formatting/parsing, so sharing one
+    // instance across the encoder/decoder is safe.
+    nonisolated(unsafe) private static let iso8601Fractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
     private static let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = .custom { date, enc in
+            var c = enc.singleValueContainer()
+            try c.encode(iso8601Fractional.string(from: date))
+        }
         return encoder
     }()
 
     private static let decoder: JSONDecoder = {
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = .custom { dec in
+            let s = try dec.singleValueContainer().decode(String.self)
+            // Accept both fractional and non-fractional (legacy) encodings.
+            if let d = iso8601Fractional.date(from: s) { return d }
+            let plain = ISO8601DateFormatter()
+            if let d = plain.date(from: s) { return d }
+            throw DecodingError.dataCorrupted(.init(codingPath: dec.codingPath,
+                                                    debugDescription: "Bad ISO-8601 date: \(s)"))
+        }
         return decoder
     }()
 

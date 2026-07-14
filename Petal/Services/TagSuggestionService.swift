@@ -161,7 +161,12 @@ public final class TagSuggestionService: @unchecked Sendable {
         var seen = Set<String>()
         var result: [String] = []
         for piece in text.components(separatedBy: separators) {
-            let trimmed = piece.trimmingCharacters(in: trimChars).lowercased()
+            // Strip a leading numbered-list enumerator ("1.", "2)") — `trimChars`
+            // has no digits, so a numbered reply would otherwise leak "1. ai".
+            let unnumbered = piece.replacingOccurrences(
+                of: #"^\s*\d+[.)]\s*"#, with: "", options: .regularExpression
+            )
+            let trimmed = unnumbered.trimmingCharacters(in: trimChars).lowercased()
             guard !trimmed.isEmpty, !seen.contains(trimmed) else { continue }
             seen.insert(trimmed)
             result.append(trimmed)

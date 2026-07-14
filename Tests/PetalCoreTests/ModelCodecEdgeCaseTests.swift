@@ -89,17 +89,15 @@ final class ModelCodecEdgeCaseTests: XCTestCase {
     /// A timestamp with sub-second precision is therefore truncated on the
     /// round-trip: the decoded instant has no fractional component. This pins
     /// that lossy-but-non-crashing behavior (see report finding #1).
-    func testChatMessageTimestampLosesSubSecondPrecision() {
+    func testChatMessageTimestampKeepsSubSecondPrecision() {
         let fractional = Date(timeIntervalSince1970: 1_600_000_000.75)
         let message = ChatMessage(id: UUID(), role: "user", content: "x", timestamp: fractional)
         let decoded = ChatSessionRepository.decode(ChatSessionRepository.encode([message]))
         XCTAssertEqual(decoded.count, 1)
-        let t = try! XCTUnwrap(decoded.first).timestamp.timeIntervalSince1970
-        // Fractional component was dropped by the ISO-8601 encoder.
-        XCTAssertEqual(t, t.rounded(.towardZero), accuracy: 0.0005,
-                       "iso8601 chat-message timestamps carry no sub-second precision")
-        // ...and it differs from the original fractional instant.
-        XCTAssertNotEqual(decoded.first, message)
+        // The coder now uses fractional-second ISO-8601, so the millisecond
+        // component survives the round-trip.
+        XCTAssertEqual(try XCTUnwrap(decoded.first).timestamp.timeIntervalSince1970,
+                       1_600_000_000.75, accuracy: 0.0005)
     }
 
     // MARK: - HighlightColor raw-value mapping

@@ -83,8 +83,10 @@ public final class KeyIdeaSuggestionService: @unchecked Sendable {
                 sentence.rangeOfCharacter(from: CharacterSet(charactersIn: ".!?")) == nil
             guard !isPreamble, seen.insert(sentence).inserted else { continue }
 
+            // Check the cap BEFORE appending so `limit == 0` yields nothing
+            // (rather than one) and a negative limit can't over-collect.
+            guard result.count < limit else { break }
             result.append(sentence)
-            if result.count == limit { break }
         }
 
         return result
