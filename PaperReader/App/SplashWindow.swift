@@ -218,13 +218,15 @@ enum SplashWindowController {
     /// (~127pt with overshoot) and the wordmark's extent around the dot.
     private static let bloomCanvasSide: CGFloat = 520
 
-    /// Starts the flower-bloom transition: turns the window into a large
-    /// transparent canvas centered on the wordmark's "." (so only the wordmark
-    /// and the flower render over the desktop), grows a first pink petal
-    /// toward the top-right plus a yellow pistil out of the period, sweeps a
-    /// full clockwise ring of petals, then a second interleaved ring, and —
-    /// only when the whole bloom has completed — fires the stored
-    /// `onResearchNow` closure to reveal the main window.
+    /// Starts the flower-bloom transition. On click the letters vanish at once,
+    /// leaving only the period, which (A) slides from the end of "Petal." to the
+    /// window's horizontal center a little below the text line, then (B) grows
+    /// and turns yellow in its own beat to become the pistil, after which (C)
+    /// the petals bloom: a hero petal toward the top-right, a full clockwise
+    /// ring, then a second interleaved ring flowing straight out of the first
+    /// with no pause. The window becomes a large transparent canvas centered on
+    /// that recentered flower point so the petals have 360° of room. Only when
+    /// the whole bloom completes does the stored `onResearchNow` closure fire.
     ///
     /// Honors Reduce Motion by skipping the bloom entirely and firing the
     /// reveal promptly (the reveal path's `dismiss()` provides a short fade).
@@ -246,19 +248,25 @@ enum SplashWindowController {
             return
         }
 
-        // --- 1. Transparent canvas anchored on the period --------------------
-        // Compute the dot's on-screen center, then instantly swap the window
-        // frame for a large square canvas whose center is exactly that point.
-        // The window is already fully transparent by then, so the frame change
-        // itself is invisible; the subviews are shifted by the frame delta so
-        // the wordmark does not move on screen. This gives the flower room to
-        // radiate 360° from the dot without clipping against window bounds.
-        let dotInWindow = titleContainer.convert(bloomDotAnchor, to: nil)
-        let dotOnScreen = splash.convertPoint(toScreen: dotInWindow)
+        // --- 1. Transparent canvas centered on the flower point --------------
+        // The flower does NOT bloom where the period sits (the right end of
+        // "Petal."). Instead the period first slides to the window's HORIZONTAL
+        // CENTER, a little BELOW the text line, and blooms there. Compute both
+        // the period's current on-screen center and that recentered target,
+        // then swap the window for a large transparent square canvas centered
+        // on the target so the flower has 360° of room without clipping.
+        let originalWidth = contentView.bounds.width
+        let periodInWindow = titleContainer.convert(bloomDotAnchor, to: nil)
+        let flowerDrop: CGFloat = 30 // sit a little below the text line
+        let targetInWindow = CGPoint(x: originalWidth / 2,
+                                     y: periodInWindow.y - flowerDrop)
+        let periodOnScreen = splash.convertPoint(toScreen: periodInWindow)
+        let targetOnScreen = splash.convertPoint(toScreen: targetInWindow)
+
         let side = bloomCanvasSide
         let newFrame = NSRect(
-            x: dotOnScreen.x - side / 2,
-            y: dotOnScreen.y - side / 2,
+            x: targetOnScreen.x - side / 2,
+            y: targetOnScreen.y - side / 2,
             width: side,
             height: side
         )
@@ -273,8 +281,8 @@ enum SplashWindowController {
         rootLayer.backgroundColor = NSColor.clear.cgColor
         bloomButton?.isHidden = true
         // The letters ("P", "et", "al") and the text "." vanish at once — only
-        // the period lives on, reborn as the pistil disc spawned at its exact
-        // ink center just below (same on-screen point, seamless hand-off).
+        // the period lives on, reborn as the pistil disc, which is spawned at
+        // the period's old on-screen spot and then slides to the flower center.
         titleContainer.isHidden = true
 
         splash.setFrame(newFrame, display: false)
@@ -287,24 +295,28 @@ enum SplashWindowController {
         CATransaction.commit()
         splash.invalidateShadow()
 
-        // The flower's center: the dot's ink center expressed in the (resized)
-        // content view's coordinate space — by construction the canvas center.
-        let flowerCenter = contentView.convert(bloomDotAnchor, from: titleContainer)
+        // Both key points expressed in the resized content view's coordinates
+        // (derived from screen coords + the new frame origin, independent of
+        // any autoresizing): the flower center is the canvas center, and the
+        // pistil's translate starts from the period's former on-screen spot.
+        let flowerCenter = CGPoint(x: targetOnScreen.x - newFrame.minX,
+                                   y: targetOnScreen.y - newFrame.minY)
+        let periodStart = CGPoint(x: periodOnScreen.x - newFrame.minX,
+                                  y: periodOnScreen.y - newFrame.minY)
 
         // --- 2. Build the flower ---------------------------------------------
-        // Petals live in a zero-bounds container layer at the flower center,
-        // inserted BELOW the wordmark so pink never obscures the glyphs; the
-        // pistil is added ABOVE it so the period visually becomes the flower's
-        // dark heart inside a yellow center.
+        // Petals live in a zero-bounds container at the flower center, inserted
+        // BELOW everything; the pistil is added ABOVE so the recentered period
+        // becomes the flower's yellow center.
         let flowerLayer = CALayer()
         flowerLayer.position = flowerCenter
         flowerLayer.bounds = .zero
         flowerLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
 
         let ring1Length: CGFloat = 118
-        let ring1Width: CGFloat = 48
+        let ring1Width: CGFloat = 46
         let ring2Length: CGFloat = 92
-        let ring2Width: CGFloat = 42
+        let ring2Width: CGFloat = 40
 
         let ring1Color = NSColor.systemPink
         let ring2Color = NSColor.systemPink.blended(withFraction: 0.22, of: .black) ?? .systemPink
@@ -332,12 +344,11 @@ enum SplashWindowController {
         rootLayer.insertSublayer(flowerLayer, at: 0)
 
         // --- The period BECOMES the pistil -----------------------------------
-        // A container anchored EXACTLY on the period's ink center. It starts
-        // dot-sized (scale ≈ dotDiameter / pistil size) and dark like the "."
-        // so it reads as the very same dot the wordmark left behind, then, in
-        // one continuous motion, grows, rotates, and its disc morphs from the
-        // period's color to yellow — the period turning into the flower's
-        // center. Drawn above the petals AND the (hidden) wordmark.
+        // A container that starts dot-sized and dark (like the ".") at the
+        // period's former spot. It (A) slides to the flower center, then (B)
+        // grows + turns yellow in its own smooth beat, then (C) the petals
+        // bloom. Its model position is the flower center; a translate animation
+        // carries it there from `periodStart`.
         let pistilRadius: CGFloat = 15
         let pistil = CALayer()
         pistil.position = flowerCenter
@@ -351,8 +362,8 @@ enum SplashWindowController {
         pistilDisc.fillColor = NSColor.systemYellow.cgColor // final color
         pistil.addSublayer(pistilDisc)
 
-        // Rotating detail (stamen ring + core) that appears in the second half
-        // so the growth reads as a real spinning pistil, not just a disc.
+        // Rotating detail (stamen ring + core) that appears as the disc reaches
+        // full size so the growth reads as a real pistil, not just a disc.
         let detail = CALayer()
         detail.bounds = .zero
         detail.position = .zero
@@ -376,18 +387,29 @@ enum SplashWindowController {
         pistil.addSublayer(detail)
         rootLayer.addSublayer(pistil)
 
-        // --- 3. Choreography ---------------------------------------------------
-        // t 0.00–0.50  hero petal (top-right) + pistil grow out of the period
-        // t 0.50–1.27  ring 1 sweeps clockwise, one petal every 75ms
-        // t 1.25–1.97  ring 2 (interleaved, behind) sweeps clockwise every 60ms
-        // t ~2.22      brief hold, then the stored onResearchNow fires
-        let heroDuration: CFTimeInterval = 0.5
-        let ring1Stagger: CFTimeInterval = 0.075
-        let ring1Duration: CFTimeInterval = 0.32
-        let ring2Begin: CFTimeInterval = 1.25
-        let ring2Stagger: CFTimeInterval = 0.06
-        let ring2Duration: CFTimeInterval = 0.30
+        // --- 3. Choreography (sequenced) -------------------------------------
+        //  t 0.00–0.40  the period slides from its spot to the flower center
+        //  t 0.40–0.88  it grows + turns yellow (own beat) → pistil, detail in
+        //  t 0.88–…     petals bloom: hero petal (top-right), ring 1 clockwise,
+        //               then ring 2 interleaved with NO gap (same cadence)
+        //  end + 0.25   brief hold, then the stored onResearchNow fires
+        let translateDuration: CFTimeInterval = 0.40
+        let growBegin: CFTimeInterval = translateDuration
+        let growDuration: CFTimeInterval = 0.48
+        let petalsBegin: CFTimeInterval = growBegin + growDuration // 0.88
+
+        let heroPetalDuration: CFTimeInterval = 0.40
+        let ring1Stagger: CFTimeInterval = 0.06
+        let ring1Duration: CFTimeInterval = 0.28
+        // Ring 2 continues the exact same cadence right after ring 1's last
+        // petal starts — no pause between the rings.
+        let ring2Begin: CFTimeInterval = petalsBegin + heroPetalDuration
+            + CFTimeInterval(petalsPerRing) * ring1Stagger
+        let ring2Stagger: CFTimeInterval = 0.05
+        let ring2Duration: CFTimeInterval = 0.28
         let bloomEnd = ring2Begin + CFTimeInterval(petalsPerRing - 1) * ring2Stagger + ring2Duration
+
+        let now = CACurrentMediaTime()
 
         CATransaction.begin()
         CATransaction.setCompletionBlock {
@@ -400,21 +422,41 @@ enum SplashWindowController {
             }
         }
 
+        // Ring 1: hero petal grows first; the rest fan out clockwise only once
+        // the hero has reached full size.
         for (index, petal) in ring1Petals.enumerated() {
-            let delay = index == 0 ? 0 : heroDuration + CFTimeInterval(index - 1) * ring1Stagger
-            let duration = index == 0 ? heroDuration : ring1Duration
+            let delay = index == 0
+                ? petalsBegin
+                : petalsBegin + heroPetalDuration + CFTimeInterval(index - 1) * ring1Stagger
+            let duration = index == 0 ? heroPetalDuration : ring1Duration
             petal.add(petalGrowAnimation(delay: delay, duration: duration), forKey: "grow")
         }
+        // Ring 2: interleaved, behind, flowing straight out of ring 1.
         for (index, petal) in ring2Petals.enumerated() {
             let delay = ring2Begin + CFTimeInterval(index) * ring2Stagger
             petal.add(petalGrowAnimation(delay: delay, duration: ring2Duration), forKey: "grow")
         }
 
-        // Period → pistil morph: one continuous grow + spin + color change,
-        // concurrent with the hero petal.
-        let now = CACurrentMediaTime()
-        let startScale = max(bloomDotDiameter / (2 * pistilRadius), 0.1)
+        // (A) Slide the period to the flower center (x and y animated
+        // explicitly so the value boxing is unambiguous).
+        let slideX = CABasicAnimation(keyPath: "position.x")
+        slideX.fromValue = periodStart.x
+        slideX.toValue = flowerCenter.x
+        let slideY = CABasicAnimation(keyPath: "position.y")
+        slideY.fromValue = periodStart.y
+        slideY.toValue = flowerCenter.y
+        let slide = CAAnimationGroup()
+        slide.animations = [slideX, slideY]
+        slide.duration = translateDuration
+        slide.beginTime = now
+        slide.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        slide.fillMode = .backwards
+        slide.isRemovedOnCompletion = true
+        pistil.add(slide, forKey: "slide")
 
+        // (B) Grow + spin, held dot-sized (via backwards fill) until the slide
+        // finishes, so growth is its own beat after the translate.
+        let startScale = max(bloomDotDiameter / (2 * pistilRadius), 0.1)
         let pistilGrow = CAKeyframeAnimation(keyPath: "transform.scale")
         pistilGrow.values = [startScale, 1.06, 1.0]
         pistilGrow.keyTimes = [0.0, 0.78, 1.0]
@@ -427,30 +469,30 @@ enum SplashWindowController {
         pistilSpin.toValue = 0
         let pistilMove = CAAnimationGroup()
         pistilMove.animations = [pistilGrow, pistilSpin]
-        pistilMove.duration = heroDuration
-        pistilMove.beginTime = now
+        pistilMove.duration = growDuration
+        pistilMove.beginTime = now + growBegin
         pistilMove.timingFunction = CAMediaTimingFunction(name: .easeOut)
         pistilMove.fillMode = .backwards
         pistilMove.isRemovedOnCompletion = true
-        pistil.add(pistilMove, forKey: "morph")
+        pistil.add(pistilMove, forKey: "grow")
 
-        // Disc color: the period's ink color → yellow, over the first ~¾.
+        // Disc color: dark (the period's ink) → yellow, during the grow beat.
         let colorMorph = CABasicAnimation(keyPath: "fillColor")
         colorMorph.fromValue = NSColor.labelColor.cgColor
         colorMorph.toValue = NSColor.systemYellow.cgColor
-        colorMorph.duration = heroDuration * 0.75
-        colorMorph.beginTime = now
-        colorMorph.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        colorMorph.duration = growDuration * 0.85
+        colorMorph.beginTime = now + growBegin
+        colorMorph.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         colorMorph.fillMode = .backwards
         colorMorph.isRemovedOnCompletion = true
         pistilDisc.add(colorMorph, forKey: "colorMorph")
 
-        // Stamen ring + core fade in over the second half.
+        // Stamen ring + core fade in as the disc reaches full size.
         let detailFade = CABasicAnimation(keyPath: "opacity")
         detailFade.fromValue = 0
         detailFade.toValue = 1
-        detailFade.duration = heroDuration * 0.55
-        detailFade.beginTime = now + heroDuration * 0.45
+        detailFade.duration = growDuration * 0.55
+        detailFade.beginTime = now + growBegin + growDuration * 0.45
         detailFade.timingFunction = CAMediaTimingFunction(name: .easeOut)
         detailFade.fillMode = .backwards
         detailFade.isRemovedOnCompletion = true
@@ -494,49 +536,12 @@ enum SplashWindowController {
         return petal
     }
 
-    /// Builds a symmetric teardrop petal in a y-up (non-flipped) coordinate
-    /// space. The base attaches to the flower center at (0,0) with a soft
-    /// point, the body swells to ~`width` at ~42% of `length`, and the TIP is a
-    /// smooth rounded dome (the two sides curve over into each other across a
-    /// rounded cap through the apex) rather than meeting at a sharp point.
+    /// A simple oval petal: an ellipse `width` wide and `length` tall, with its
+    /// base touching the origin (0,0) and pointing up toward +y. Coordinate
+    /// space is y-up (non-flipped CALayer).
     private static func petalPath(length: CGFloat, width: CGFloat) -> CGPath {
-        let path = CGMutablePath()
-        let halfWidth = width / 2
-        let widestY = length * 0.42
-        // Near-tip shoulder points: slightly off-axis and below the very top,
-        // where each side stops rising and rolls over into the rounded cap.
-        let tipX = halfWidth * 0.42
-        let tipY = length * 0.86
-
-        // Base -> right belly (soft base + swelling belly).
-        path.move(to: CGPoint(x: 0, y: 0))
-        path.addCurve(to: CGPoint(x: halfWidth, y: widestY),
-            control1: CGPoint(x: 0, y: length * 0.14),
-            control2: CGPoint(x: halfWidth, y: widestY - length * 0.16))
-        // Right belly -> right shoulder (side climbs and eases inward).
-        path.addCurve(to: CGPoint(x: tipX, y: tipY),
-            control1: CGPoint(x: halfWidth, y: widestY + length * 0.20),
-            control2: CGPoint(x: halfWidth * 0.82, y: tipY - length * 0.02))
-        // Right shoulder -> apex; control2 is level (y == length) for a
-        // HORIZONTAL tangent at the top.
-        path.addCurve(to: CGPoint(x: 0, y: length),
-            control1: CGPoint(x: tipX, y: tipY + length * 0.08),
-            control2: CGPoint(x: tipX, y: length))
-        // Apex -> left shoulder; control1 is level (mirror), so the tangent is
-        // continuous across the apex -> no corner, a rounded dome.
-        path.addCurve(to: CGPoint(x: -tipX, y: tipY),
-            control1: CGPoint(x: -tipX, y: length),
-            control2: CGPoint(x: -tipX, y: tipY + length * 0.08))
-        // Left shoulder -> left belly (mirror of the right side).
-        path.addCurve(to: CGPoint(x: -halfWidth, y: widestY),
-            control1: CGPoint(x: -halfWidth * 0.82, y: tipY - length * 0.02),
-            control2: CGPoint(x: -halfWidth, y: widestY + length * 0.20))
-        // Left belly -> base (mirror).
-        path.addCurve(to: CGPoint(x: 0, y: 0),
-            control1: CGPoint(x: -halfWidth, y: widestY - length * 0.16),
-            control2: CGPoint(x: 0, y: length * 0.14))
-        path.closeSubpath()
-        return path
+        let rect = CGRect(x: -width / 2, y: 0, width: width, height: length)
+        return CGPath(ellipseIn: rect, transform: nil)
     }
 
     /// Returns the z-rotation (radians) for each of `count` petals so petal k
