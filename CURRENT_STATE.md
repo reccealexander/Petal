@@ -64,8 +64,8 @@ Package.swift                   Swift 6 package, macOS 14+
 
 ### Organization
 
-- Arbitrarily nested notebooks, recursive paper scope, cycle-safe moves, Unfiled, pinning, and `paper:`/`notebook:` drag/drop — `NotebookTreeView.swift`, `AllFoldersView.swift`, `Services/NotebookRepository.swift`.
-- Grid, list, and free-space pages with keyboard/card selection; Graph is a Free Space toggle connecting paper nodes that share tags — `PaperPagedLibraryView.swift`, `PaperGridView.swift`, `PaperListView.swift`, `FreeSpaceCanvasView.swift`, `PaperSelectionController.swift`.
+- Arbitrarily nested notebooks, recursive paper scope, cycle-safe moves, Unfiled, pinning, and `paper:`/`notebook:` drag/drop — `NotebookTreeView.swift`, `AllFoldersView.swift`, `Services/NotebookRepository.swift`. Sidebar drag also un-nests a subfolder to root and unfiles a paper via All Papers; a right-click "Move to…" hierarchical submenu on paper cards is a multi-select-aware, non-drag alternative — `NotebookTreeView.swift`, `PaperCardView.swift`, `PaperInteractionShell.swift`.
+- Grid, list, and free-space pages with keyboard/card selection; Graph is a Free Space toggle connecting paper nodes that share tags — `PaperPagedLibraryView.swift`, `PaperGridView.swift`, `PaperListView.swift`, `FreeSpaceCanvasView.swift`, `PaperSelectionController.swift`. Inside a selected notebook, its direct subfolders render as reusable `AllFolderCard` stacked-thumbnail cards alongside the notebook's own (direct-only) papers; tapping one navigates in — `AllFoldersView.swift` (`AllFolderCard`), `LibraryViewModel.folderPreview`.
 - AND-semantics tag filtering, reading-status filtering, flat/notebook/tag grouping, pin-first ordering, global paper/notebook search, and FTS result search — `HomeView.swift`, `LibraryViewModel.swift`, `TagFilterView`/`ReadingStatusFilterView` (declared in `HomeView.swift`), `GlobalSearchOverlay.swift`, `Services/SearchRepository.swift`.
 
 ### Window management
@@ -101,3 +101,4 @@ Package.swift                   Swift 6 package, macOS 14+
 - Drag payloads are plain strings: `paper:<id>` and `notebook:<id>` (`LibraryViewModel`, `PaperCardView`, `NotebookTreeView`).
 - Chat scopes can own multiple sessions. Recency ordering is `updated_at`, then `created_at`, then SQLite `rowid` as the final tiebreak; `scope_id` has no FK, so paper deletion cleans paper chat rows explicitly (`ChatSessionRepository`, `LibraryViewModel.deletePapers`).
 - Graph mode is not a fourth pager page: it overlays edges within Free Space; every paper is a node and an edge exists when two papers share at least one tag (`FreeSpaceCanvasView`).
+- Selecting a specific notebook now shows its **direct** papers only (`reloadPapers` filters the recursive `papersUnder` result to `notebookId == id`), because its subfolders render as their own cards; showing the full recursive subtree would list a subfolder's papers twice. `.all`/`.unfiled` are unchanged, and subfolder cards still use recursive `papersUnder` (via `LibraryViewModel.folderPreview`) for their pile thumbnail and count (`LibraryViewModel`, `PaperGridView`, `PaperListView`, `FreeSpaceCanvasView`).
