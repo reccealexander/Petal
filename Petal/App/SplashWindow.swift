@@ -621,12 +621,18 @@ enum SplashWindowController {
             runPetalLanding(splash: splash, mainFrame: mainFrame)
             return
         }
-        let recenterOrigin = NSPoint(x: splash.frame.origin.x + delta.x,
-                                     y: splash.frame.origin.y + delta.y)
+        // Animate the WINDOW FRAME (not setFrameOrigin, which the animator proxy
+        // applies instantly) so the flower visibly glides to the window center.
+        let recenterFrame = NSRect(
+            origin: NSPoint(x: splash.frame.origin.x + delta.x,
+                            y: splash.frame.origin.y + delta.y),
+            size: splash.frame.size
+        )
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.35
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            splash.animator().setFrameOrigin(recenterOrigin)
+            ctx.allowsImplicitAnimation = true
+            splash.animator().setFrame(recenterFrame, display: true)
         } completionHandler: {
             MainActor.assumeIsolated {
                 bloomFlowerCenterScreen = windowCenter
