@@ -595,24 +595,26 @@ private struct KeyIdeaSuggestionPopover: View {
                     systemImage: "text.badge.xmark"
                 )
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(model.keyIdeaProposals) { proposal in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(proposal.sentence)
-                                    .lineLimit(3)
-                                HStack {
-                                    Button("Accept") { model.acceptKeyIdea(proposal.id) }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Click a “Key Insight” label on the page to accept.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            ForEach(model.keyIdeaProposals) { proposal in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(proposal.sentence)
+                                        .lineLimit(3)
                                     Button("Dismiss", role: .cancel) {
                                         model.dismissKeyIdea(proposal.id)
                                     }
+                                    Divider()
                                 }
-                                Divider()
                             }
                         }
                     }
+                    .frame(maxHeight: 320)
                 }
-                .frame(maxHeight: 320)
             }
         }
         .padding()

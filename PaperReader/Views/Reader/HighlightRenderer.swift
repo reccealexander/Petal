@@ -101,6 +101,23 @@ enum HighlightRenderer {
         }
     }
 
+    /// Adds a clickable badge immediately above the top-most pending marker.
+    static func addProposalLabel(near rects: [CGRect], on page: PDFPage) -> PDFAnnotation? {
+        guard let topRect = rects.max(by: { $0.maxY < $1.maxY }) else { return nil }
+
+        let bounds = CGRect(x: topRect.minX, y: topRect.maxY + 4, width: 74, height: 16)
+        let annotation = PDFAnnotation(bounds: bounds, forType: .freeText, withProperties: nil)
+        annotation.contents = "Key Insight"
+        annotation.font = NSFont.boldSystemFont(ofSize: 9)
+        annotation.fontColor = .white
+        annotation.color = .systemOrange
+        annotation.alignment = .center
+        annotation.isReadOnly = true
+        annotation.border = nil
+        page.addAnnotation(annotation)
+        return annotation
+    }
+
     /// Splits a `PDFSelection` into per-page spans, handling selections that
     /// cross a page break by producing one span per page touched.
     static func spans(from selection: PDFSelection, in document: PDFDocument) -> [SelectionSpan] {

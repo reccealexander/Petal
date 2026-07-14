@@ -214,6 +214,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         var annotationToId: [PDFAnnotation: String] = [:]
         private var proposalsByPage: [Int: [KeyIdeaProposal]] = [:]
         private var proposedAnnotations: [KeyIdeaProposal.ID: [PDFAnnotation]] = [:]
+        private var proposalLabelToId: [PDFAnnotation: KeyIdeaProposal.ID] = [:]
         private var fetchedPages: Set<Int> = []
         private var inFlightPages: Set<Int> = []
         private var autoSuggestTask: Task<Void, Never>?
@@ -430,10 +431,15 @@ struct PDFKitWrapper: NSViewRepresentable {
 
             let proposals = proposalsByPage[pageIndex] ?? []
             for proposal in proposals {
-                proposedAnnotations[proposal.id] = HighlightRenderer.addProposalAnnotations(
+                var annotations = HighlightRenderer.addProposalAnnotations(
                     rects: proposal.rects,
                     on: page
                 )
+                if let label = HighlightRenderer.addProposalLabel(near: proposal.rects, on: page) {
+                    annotations.append(label)
+                    proposalLabelToId[label] = proposal.id
+                }
+                proposedAnnotations[proposal.id] = annotations
             }
             model.keyIdeaProposals = proposals
         }
@@ -441,6 +447,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         private func removeDrawnProposalAnnotations() {
             proposedAnnotations.values.forEach(HighlightRenderer.removeAnnotations)
             proposedAnnotations.removeAll()
+            proposalLabelToId.removeAll()
             model.keyIdeaProposals.removeAll()
         }
 
@@ -559,6 +566,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         private func removeProposal(_ id: UUID) {
             HighlightRenderer.removeAnnotations(proposedAnnotations[id] ?? [])
             proposedAnnotations[id] = nil
+            proposalLabelToId = proposalLabelToId.filter { $0.value != id }
             let pageIndex = model.currentPageIndex
             proposalsByPage[pageIndex]?.removeAll { $0.id == id }
             model.keyIdeaProposals.removeAll { $0.id == id }
@@ -602,6 +610,11 @@ struct PDFKitWrapper: NSViewRepresentable {
         }
 
         func handleAnnotationClick(_ annotation: PDFAnnotation, page: PDFPage) -> Bool {
+            if let proposalId = proposalLabelToId[annotation] {
+                acceptKeyIdea(proposalId)
+                return true
+            }
+
             guard let highlightId = annotationToId[annotation], let pdfView else { return false }
             lastOpenedHighlightId = highlightId
             showCommentPopover(highlightId: highlightId, annotation: annotation, page: page, in: pdfView)
