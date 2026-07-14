@@ -52,6 +52,14 @@ public final class PDFImportService {
 
         let paperId = UUID().uuidString
 
+        // Validate the PDF BEFORE copying anything into Papers/, so an invalid or
+        // unreadable file never leaves an orphaned copy behind (previously the
+        // copy happened first, then validation threw and left the file).
+        guard let doc = PDFDocument(url: sourceURL) else {
+            throw PDFImportError.cannotOpenPDF
+        }
+        let pageCount = doc.pageCount
+
         try FileManager.default.createDirectory(
             at: papersDirectory,
             withIntermediateDirectories: true
@@ -63,43 +71,46 @@ public final class PDFImportService {
         }
         try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
 
-        guard let doc = PDFDocument(url: destinationURL) else {
-            throw PDFImportError.cannotOpenPDF
-        }
-        let pageCount = doc.pageCount
-
-        let rawTitle = (doc.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let title: String
-        if let rawTitle, !rawTitle.isEmpty {
-            title = rawTitle
-        } else {
-            title = sourceURL.deletingPathExtension().lastPathComponent
-        }
-
-        if let page = doc.page(at: 0) {
-            let thumbnailImage = page.thumbnail(of: CGSize(width: 240, height: 320), for: .cropBox)
-            if let tiffData = thumbnailImage.tiffRepresentation,
-               let bitmap = NSBitmapImageRep(data: tiffData),
-               let pngData = bitmap.representation(using: .png, properties: [:]) {
-                let thumbURL = papersDirectory.appendingPathComponent("\(paperId)_thumb.png")
-                try? pngData.write(to: thumbURL)
+        do {
+            let rawTitle = (doc.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let title: String
+            if let rawTitle, !rawTitle.isEmpty {
+                title = rawTitle
+            } else {
+                title = sourceURL.deletingPathExtension().lastPathComponent
             }
-        }
 
-        let paper = Paper(
-            id: paperId,
-            title: title,
-            filePath: "\(paperId).pdf",
-            fileHash: hash,
-            pageCount: pageCount
-        )
-        try dbQueue.write { db in
-            try paper.insert(db)
-            try SearchIndex.indexPaper(paper, in: db)
-        }
+            if let page = doc.page(at: 0) {
+                let thumbnailImage = page.thumbnail(of: CGSize(width: 240, height: 320), for: .cropBox)
+                if let tiffData = thumbnailImage.tiffRepresentation,
+                   let bitmap = NSBitmapImageRep(data: tiffData),
+                   let pngData = bitmap.representation(using: .png, properties: [:]) {
+                    let thumbURL = papersDirectory.appendingPathComponent("\(paperId)_thumb.png")
+                    try? pngData.write(to: thumbURL)
+                }
+            }
 
-        return .imported(paper)
+            let paper = Paper(
+                id: paperId,
+                title: title,
+                filePath: "\(paperId).pdf",
+                fileHash: hash,
+                pageCount: pageCount
+            )
+            try dbQueue.write { db in
+                try paper.insert(db)
+                try SearchIndex.indexPaper(paper, in: db)
+            }
+
+            return .imported(paper)
+        } catch {
+            // A later failure (e.g. the DB insert) must not orphan the copied
+            // file(s) on disk.
+            try? FileManager.default.removeItem(at: destinationURL)
+            try? FileManager.default.removeItem(at: papersDirectory.appendingPathComponent("\(paperId)_thumb.png"))
+            throw error
+        }
     }
 
     /// Absolute URL of `paper`'s copied PDF (`paper.filePath` is relative to `papersDirectory`).

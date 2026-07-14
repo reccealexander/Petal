@@ -100,6 +100,22 @@ final class PDFImportServiceTests: XCTestCase {
         return paper
     }
 
+    /// Regression (H4): importing an invalid/unreadable PDF must throw and leave
+    /// NO orphaned copy in Papers/ (validation now happens before the copy).
+    func testInvalidPDFThrowsAndLeavesNoOrphanFile() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pdfimport-bad-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let bad = dir.appendingPathComponent("notreally.pdf")
+        try Data("%PDF-1.4 this is not a real pdf".utf8).write(to: bad)
+
+        XCTAssertThrowsError(try service.importPDF(from: bad))
+
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: manager.papersDirectory, includingPropertiesForKeys: nil)) ?? []
+        XCTAssertTrue(contents.isEmpty, "invalid import left orphan file(s): \(contents)")
+    }
+
     @discardableResult
     private func makeSamplePDF(named name: String, title: String?) throws -> URL {
         let dir = FileManager.default.temporaryDirectory
