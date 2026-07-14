@@ -5,9 +5,9 @@ import GRDB
 ///
 /// On disk the layout is (spec §1):
 /// ```
-/// ~/Library/Application Support/Petal/
-///   ├── db.sqlite
-///   └── Papers/            <- imported PDFs, copied on import (Session 2)
+/// ~/Library/Application Support/PaperReader/   (kept under the original name so
+///   ├── db.sqlite                               existing libraries aren't orphaned
+///   └── Papers/            <- imported PDFs, copied on import (Session 2)   by the Petal rename)
 /// ```
 /// Injected as a dependency (held by `AppState` in the app, constructed directly
 /// in tests). `inMemory()` gives tests a fully-migrated throwaway database.
@@ -32,7 +32,11 @@ public final class DatabaseManager {
             appropriateFor: nil,
             create: true
         )
-        let root = support.appendingPathComponent("Petal", isDirectory: true)
+        // NOTE: the on-disk data directory stays "PaperReader" even though the
+        // app is now Petal. Renaming it would orphan every existing user's
+        // library (their db.sqlite + imported Papers/ live under the old name).
+        // The directory name is internal and never shown, so it stays put.
+        let root = support.appendingPathComponent("PaperReader", isDirectory: true)
         try DatabaseManager.ensureDirectory(root)
 
         let papers = root.appendingPathComponent("Papers", isDirectory: true)
