@@ -110,13 +110,22 @@ public enum QuickActionPrompts {
     /// Builds the tightly constrained request used for page-level key ideas.
     /// `instruction` is an optional user-supplied focus for what should count as
     /// a key insight (e.g. "the methodology" or "limitations").
-    public static func keyIdeaUserMessage(pageText: String, instruction: String = "") -> String {
+    /// When `everyParagraph` is true, the model is asked for the single main-idea
+    /// sentence of *every* substantive paragraph instead of the page's best 1-5.
+    public static func keyIdeaUserMessage(
+        pageText: String,
+        instruction: String = "",
+        everyParagraph: Bool = false
+    ) -> String {
         let focus = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         let focusLine = focus.isEmpty
             ? ""
             : "\nThe reader is specifically interested in: \(focus). Prioritize sentences relevant to that; if none on this page are relevant, return NOTHING.\n"
+        let task = everyParagraph
+            ? "Go through this page paragraph by paragraph. For EVERY substantive paragraph, return the single sentence that best captures that paragraph's main idea, copied VERBATIM from the text — one sentence per paragraph, in reading order. Skip paragraphs that carry no substantive idea (for example, references, figures, captions, or boilerplate). Each sentence must be an exact substring: do not paraphrase or add or remove words. Do not use quotation marks or numbering."
+            : "Return the 1-5 sentences that best capture this page's key ideas, copied VERBATIM from the text. Each sentence must be an exact substring: do not paraphrase or add or remove words. Do not use quotation marks or numbering."
         return """
-        Return the 1-5 sentences that best capture this page's key ideas, copied VERBATIM from the text. Each sentence must be an exact substring: do not paraphrase or add or remove words. Do not use quotation marks or numbering.
+        \(task)
         \(focusLine)
         Output ONE sentence per line and NOTHING else.
         If the page has no substantive key ideas (for example, references, figures, or boilerplate), return NOTHING (an empty response).

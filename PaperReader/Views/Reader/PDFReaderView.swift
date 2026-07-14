@@ -594,6 +594,19 @@ private struct KeyIdeaSuggestionPopover: View {
                     .foregroundStyle(.secondary)
             }
 
+            VStack(alignment: .leading, spacing: 4) {
+                Toggle(
+                    "Highlight every paragraph’s main idea",
+                    isOn: $model.highlightEveryParagraph
+                )
+                .onChange(of: model.highlightEveryParagraph) { _, _ in
+                    model.regenerateKeyIdeas()
+                }
+                Text("Marks the main-idea sentence of every paragraph instead of the page’s few best. Applies to this and following pages.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
             if model.isSuggestingKeyIdeas {
                 HStack {
                     ProgressView()

@@ -44,6 +44,15 @@ final class KeyIdeaSuggestionServiceTests: XCTestCase {
         )
     }
 
+    func testHigherLimitAllowsMoreThanFiveForEveryParagraphMode() {
+        let text = "One.\nTwo.\nThree.\nFour.\nFive.\nSix.\nSeven."
+
+        XCTAssertEqual(
+            KeyIdeaSuggestionService.parseKeyIdeas(from: text, limit: 25),
+            ["One.", "Two.", "Three.", "Four.", "Five.", "Six.", "Seven."]
+        )
+    }
+
     func testCasingAndInternalPunctuationArePreserved() {
         let sentence = "DNA-binding increased; however, pH-dependent activity did NOT."
 

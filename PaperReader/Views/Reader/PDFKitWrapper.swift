@@ -804,6 +804,7 @@ struct PDFKitWrapper: NSViewRepresentable {
             let pageIndex = document.index(for: page)
             guard pageIndex != NSNotFound else { return }
             let instruction = model.keyIdeaInstruction
+            let everyParagraph = model.highlightEveryParagraph
 
             autoSuggestTask?.cancel()
             autoSuggestTask = nil
@@ -827,7 +828,7 @@ struct PDFKitWrapper: NSViewRepresentable {
                     }
                 }
                 do {
-                    let sentences = try await self.keyIdeaService.suggestKeyIdeas(pageText: text, instruction: instruction)
+                    let sentences = try await self.keyIdeaService.suggestKeyIdeas(pageText: text, instruction: instruction, everyParagraph: everyParagraph)
                     guard self.proposalGeneration == generation,
                           self.model.isAIAssistModeActive
                     else { return }

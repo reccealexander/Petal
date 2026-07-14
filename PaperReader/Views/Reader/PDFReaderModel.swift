@@ -28,6 +28,10 @@ final class PDFReaderModel: ObservableObject {
     /// Read by the coordinator at fetch time; `regenerateKeyIdeas()` re-runs the
     /// current page with the latest value.
     @Published var keyIdeaInstruction: String = ""
+    /// When on, AI Notes surfaces the single main-idea sentence of *every*
+    /// paragraph on the page instead of the page's 1-5 best key ideas. Read by
+    /// the coordinator at fetch time; toggling it regenerates the current page.
+    @Published var highlightEveryParagraph: Bool = false
 
     var performAddHighlight: ((HighlightColor) -> Void)?
     func addHighlight(_ color: HighlightColor) { performAddHighlight?(color) }

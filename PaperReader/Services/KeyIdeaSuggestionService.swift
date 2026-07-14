@@ -16,7 +16,16 @@ public final class KeyIdeaSuggestionService: @unchecked Sendable {
         keychain.hasAPIKey
     }
 
-    public func suggestKeyIdeas(pageText: String, instruction: String = "") async throws -> [String] {
+    /// Upper bound on suggestions per page. When `everyParagraph` is on we allow
+    /// more, since a dense page can hold many paragraphs, each contributing one.
+    private static let maxKeyIdeas = 5
+    private static let maxParagraphIdeas = 25
+
+    public func suggestKeyIdeas(
+        pageText: String,
+        instruction: String = "",
+        everyParagraph: Bool = false
+    ) async throws -> [String] {
         guard hasAPIKey else {
             throw GeminiClientError.missingAPIKey
         }
@@ -25,7 +34,11 @@ public final class KeyIdeaSuggestionService: @unchecked Sendable {
         guard !trimmed.isEmpty else { return [] }
         let boundedPageText = String(trimmed.prefix(Self.maxPageCharacters))
         let system = QuickActionPrompts.keyIdeaSystemPrompt
-        let user = QuickActionPrompts.keyIdeaUserMessage(pageText: boundedPageText, instruction: instruction)
+        let user = QuickActionPrompts.keyIdeaUserMessage(
+            pageText: boundedPageText,
+            instruction: instruction,
+            everyParagraph: everyParagraph
+        )
 
         var full = ""
         let stream = claude.streamMessage(
@@ -36,12 +49,13 @@ public final class KeyIdeaSuggestionService: @unchecked Sendable {
             full += delta
         }
 
-        return Self.parseKeyIdeas(from: full)
+        let limit = everyParagraph ? Self.maxParagraphIdeas : Self.maxKeyIdeas
+        return Self.parseKeyIdeas(from: full, limit: limit)
     }
 
     /// Parses only line-delimited output so punctuation within a sentence is
     /// retained exactly as emitted by Gemini.
-    static func parseKeyIdeas(from text: String) -> [String] {
+    static func parseKeyIdeas(from text: String, limit: Int = maxKeyIdeas) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
 
@@ -70,7 +84,7 @@ public final class KeyIdeaSuggestionService: @unchecked Sendable {
             guard !isPreamble, seen.insert(sentence).inserted else { continue }
 
             result.append(sentence)
-            if result.count == 5 { break }
+            if result.count == limit { break }
         }
 
         return result
