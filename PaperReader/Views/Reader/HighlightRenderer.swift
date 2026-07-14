@@ -157,10 +157,11 @@ enum HighlightRenderer {
         }
     }
 
-    /// Adds a clickable callout in the margin beside the top-most pending marker.
-    static func addProposalLabel(near rects: [CGRect], on page: PDFPage) -> [PDFAnnotation] {
-        guard let topRect = rects.max(by: { $0.maxY < $1.maxY }) else { return [] }
-
+    /// The page-space frame of the "Key Insight" tag for a proposal (left outer
+    /// margin, or right when the left is too narrow). Shared by the tag annotation
+    /// and the connector line so they stay in sync.
+    static func tagBounds(near rects: [CGRect], on page: PDFPage) -> CGRect? {
+        guard let topRect = rects.max(by: { $0.maxY < $1.maxY }) else { return nil }
         let pageRect = page.bounds(for: .cropBox)
         let width: CGFloat = 52
         let height: CGFloat = 13
@@ -170,7 +171,12 @@ enum HighlightRenderer {
         let x: CGFloat = leftMargin >= width + 2 * inset
             ? pageRect.minX + inset
             : pageRect.maxX - width - inset
-        let bounds = CGRect(x: x, y: y, width: width, height: height)
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    /// Adds a clickable callout in the margin beside the top-most pending marker.
+    static func addProposalLabel(near rects: [CGRect], on page: PDFPage) -> [PDFAnnotation] {
+        guard let bounds = tagBounds(near: rects, on: page) else { return [] }
 
         let image = keyInsightTagImage(size: bounds.size)
         let annotation = PDFImageStampAnnotation(image: image, bounds: bounds)

@@ -238,6 +238,10 @@ struct PDFKitWrapper: NSViewRepresentable {
         /// plus the page they're on, so the bars can be re-pinned to the text as
         /// the user scrolls (the overlay itself lives in non-scrolling space).
         private var sweepBars: [(layer: CALayer, rect: CGRect)] = []
+        /// Connector lines drawn (via CoreAnimation strokeEnd) from each tag to
+        /// its highlighted text during the reveal, with their page-space endpoints
+        /// so they can be re-pinned to the text while scrolling.
+        private var sweepConnectors: [(layer: CAShapeLayer, from: CGPoint, to: CGPoint)] = []
         private var sweepAnimationPage: PDFPage?
         private var proposalGeneration = 0
         let keyIdeaService = KeyIdeaSuggestionService()
@@ -519,6 +523,39 @@ struct PDFKitWrapper: NSViewRepresentable {
                 return
             }
 
+            // A connector line from each tag (in the margin) to the start of its
+            // highlighted text, drawn on with a strokeEnd animation during the
+            // reveal. Endpoints are kept in page space so scrolling re-pins them.
+            sweepConnectors = []
+            for proposal in proposals {
+                guard let topRect = proposal.rects.max(by: { $0.maxY < $1.maxY }),
+                      let tagFrame = HighlightRenderer.tagBounds(near: proposal.rects, on: page)
+                else { continue }
+                let tagOnLeft = tagFrame.midX < topRect.midX
+                let from = tagOnLeft
+                    ? CGPoint(x: tagFrame.maxX, y: tagFrame.midY)
+                    : CGPoint(x: tagFrame.minX, y: tagFrame.midY)
+                let to = tagOnLeft
+                    ? CGPoint(x: topRect.minX, y: topRect.midY)
+                    : CGPoint(x: topRect.maxX, y: topRect.midY)
+                let fromLocal = overlay.convert(pdfView.convert(from, from: page), from: pdfView)
+                let toLocal = overlay.convert(pdfView.convert(to, from: page), from: pdfView)
+
+                let line = CAShapeLayer()
+                line.frame = overlay.bounds
+                line.strokeColor = NSColor.systemRed.withAlphaComponent(0.75).cgColor
+                line.lineWidth = 1.2
+                line.lineCap = .round
+                line.fillColor = nil
+                let path = CGMutablePath()
+                path.move(to: fromLocal)
+                path.addLine(to: toLocal)
+                line.path = path
+                line.strokeEnd = 0
+                overlay.layer?.addSublayer(line)
+                sweepConnectors.append((line, from, to))
+            }
+
             let generation = proposalGeneration
             // One-shot hand-off: add the persistent plain highlights (which live
             // on the page and scroll correctly) and remove the overlay. Runs on
@@ -553,6 +590,17 @@ struct PDFKitWrapper: NSViewRepresentable {
                 bar.transform = CATransform3DMakeScale(1, 1, 1)
                 bar.add(animation, forKey: "sweep")
             }
+            for (line, _, _) in sweepConnectors {
+                let draw = CABasicAnimation(keyPath: "strokeEnd")
+                draw.fromValue = 0
+                draw.toValue = 1
+                draw.duration = duration
+                draw.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                draw.fillMode = .forwards
+                draw.isRemovedOnCompletion = false
+                line.strokeEnd = 1
+                line.add(draw, forKey: "draw")
+            }
             CATransaction.commit()
         }
 
@@ -561,6 +609,7 @@ struct PDFKitWrapper: NSViewRepresentable {
             sweepOverlay = nil
             finalizeSweepAction = nil
             sweepBars = []
+            sweepConnectors = []
             sweepAnimationPage = nil
         }
 
@@ -570,14 +619,22 @@ struct PDFKitWrapper: NSViewRepresentable {
         /// scale animation keeps running (only `position` is touched, with
         /// implicit actions disabled so it snaps rather than lerps).
         private func repositionSweepBars() {
-            guard let pdfView, let overlay = sweepOverlay,
-                  let page = sweepAnimationPage, !sweepBars.isEmpty else { return }
+            guard let pdfView, let overlay = sweepOverlay, let page = sweepAnimationPage,
+                  !sweepBars.isEmpty || !sweepConnectors.isEmpty else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             for (bar, rect) in sweepBars {
                 let viewRect = pdfView.convert(rect, from: page)
                 let localRect = overlay.convert(viewRect, from: pdfView)
                 bar.position = CGPoint(x: localRect.minX, y: localRect.midY)
+            }
+            for (line, from, to) in sweepConnectors {
+                let fromLocal = overlay.convert(pdfView.convert(from, from: page), from: pdfView)
+                let toLocal = overlay.convert(pdfView.convert(to, from: page), from: pdfView)
+                let path = CGMutablePath()
+                path.move(to: fromLocal)
+                path.addLine(to: toLocal)
+                line.path = path
             }
             CATransaction.commit()
         }
