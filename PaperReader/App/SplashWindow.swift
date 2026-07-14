@@ -37,12 +37,14 @@ enum SplashWindowController {
     private static var hasFiredResearchNow = false
 
     /// Views/geometry captured at `show()` time that the bloom needs later:
-    /// the title container hosting the glyph layers, the button to hide, and
-    /// the resting center of the "." glyph in `titleContainer` coordinates —
-    /// the anchor point the whole flower is centered on.
+    /// the title container hosting the glyph layers, the button to hide, the
+    /// "." glyph's true ink center in `titleContainer` coordinates (the anchor
+    /// the whole flower + pistil are centered on), and the visible diameter of
+    /// the "." ink (the pistil's starting size, so it grows out of the period).
     private static var bloomTitleContainer: NSView?
     private static var bloomButton: NSButton?
-    private static var bloomDotRest: CGPoint = .zero
+    private static var bloomDotAnchor: CGPoint = .zero
+    private static var bloomDotDiameter: CGFloat = 6
 
     /// Whether the splash window is currently shown.
     static var isActive: Bool { window != nil }
@@ -58,21 +60,26 @@ enum SplashWindowController {
         guard window == nil else { return }
 
         // --- Title geometry --------------------------------------------------
-        // Render the "Pet.al" wordmark as three independent glyph layers —
-        // "Pet", a static centered ".", and "al" — so the two halves can roll
-        // in from opposite edges and meet at the dot.
+        // Render the wordmark as four independent glyph layers — "P", "et",
+        // "al", and a trailing "." — so they can first read as the academic
+        // citation "P et al." (spaced apart) and then slide together into the
+        // single word "Petal." The "." is at the RIGHT end of the wordmark and
+        // becomes the flower's center when the bloom begins.
         let font = titleFont(ofSize: 64)
         let titleColor = NSColor.labelColor
         let scale = NSScreen.main?.backingScaleFactor ?? 2
 
-        let petLayer = makeGlyphLayer("Pet", font: font, color: titleColor, scale: scale)
-        let dotLayer = makeGlyphLayer(".", font: font, color: titleColor, scale: scale)
+        let pLayer = makeGlyphLayer("P", font: font, color: titleColor, scale: scale)
+        let etLayer = makeGlyphLayer("et", font: font, color: titleColor, scale: scale)
         let alLayer = makeGlyphLayer("al", font: font, color: titleColor, scale: scale)
+        let dotLayer = makeGlyphLayer(".", font: font, color: titleColor, scale: scale)
 
-        let petW = petLayer.bounds.width
-        let dotW = dotLayer.bounds.width
+        let pW = pLayer.bounds.width
+        let etW = etLayer.bounds.width
         let alW = alLayer.bounds.width
-        let glyphH = max(petLayer.bounds.height, dotLayer.bounds.height, alLayer.bounds.height)
+        let dotW = dotLayer.bounds.width
+        let glyphH = max(max(pLayer.bounds.height, etLayer.bounds.height),
+                         max(alLayer.bounds.height, dotLayer.bounds.height))
 
         // --- Window layout (bottom-up) --------------------------------------
         let windowWidth: CGFloat = 300
@@ -109,30 +116,52 @@ enum SplashWindowController {
 
         // Title container spanning the full window width; the glyph layers are
         // positioned by their centers within it. A layer-backed, non-flipped
-        // NSView gives us a y-up coordinate system where a positive
-        // `transform.rotation.z` is counter-clockwise.
+        // NSView gives us a y-up coordinate system whose coordinates match the
+        // sublayer coordinate space one-to-one.
         let titleContainer = NSView(frame: NSRect(x: 0, y: titleOriginY, width: windowWidth, height: titleHeight))
         titleContainer.wantsLayer = true
         titleContainer.layer?.backgroundColor = NSColor.clear.cgColor
 
-        // Resting (final) center positions. The block "Pet" + "." + "al" is
-        // centered horizontally; all three share the vertical center.
-        let totalW = petW + dotW + alW
+        // Resting (closed) center positions. The block "P"+"et"+"al"+"." is
+        // centered horizontally; all four share the vertical center. This is
+        // the final "Petal." layout, and where the layers live once the intro
+        // slide completes — so the "." resting center is the bloom anchor.
+        let totalW = pW + etW + alW + dotW
         let leftX = (windowWidth - totalW) / 2
         let centerY = titleHeight / 2
-        let petRest = CGPoint(x: leftX + petW / 2, y: centerY)
-        let dotRest = CGPoint(x: leftX + petW + dotW / 2, y: centerY)
-        let alRest = CGPoint(x: leftX + petW + dotW + alW / 2, y: centerY)
+        let pRest = CGPoint(x: leftX + pW / 2, y: centerY)
+        let etRest = CGPoint(x: leftX + pW + etW / 2, y: centerY)
+        let alRest = CGPoint(x: leftX + pW + etW + alW / 2, y: centerY)
+        let dotRest = CGPoint(x: leftX + pW + etW + alW + dotW / 2, y: centerY)
 
-        // Set the model layers to their final state up front; the roll-in is
-        // added as a temporary animation from off-screen back to these values.
-        petLayer.position = petRest
-        dotLayer.position = dotRest
+        // Spaced ("P et al.") start positions. Inserting a gap after "P" and
+        // after "et" pushes "P" left by one gap and "al"+"." right by one gap,
+        // while "et" — the pivot — stays put; the block stays centered.
+        let intronGap: CGFloat = 26
+        let pStart = CGPoint(x: pRest.x - intronGap, y: centerY)
+        let etStart = etRest
+        let alStart = CGPoint(x: alRest.x + intronGap, y: centerY)
+        let dotStart = CGPoint(x: dotRest.x + intronGap, y: centerY)
+
+        // Model layers rest at their CLOSED positions; the intro adds a
+        // temporary slide from the spaced start positions back to these.
+        pLayer.position = pRest
+        etLayer.position = etRest
         alLayer.position = alRest
+        dotLayer.position = dotRest
 
-        titleContainer.layer?.addSublayer(petLayer)
-        titleContainer.layer?.addSublayer(dotLayer)
+        titleContainer.layer?.addSublayer(pLayer)
+        titleContainer.layer?.addSublayer(etLayer)
         titleContainer.layer?.addSublayer(alLayer)
+        titleContainer.layer?.addSublayer(dotLayer)
+
+        // The bloom anchor is the "." glyph's true INK center, not the text
+        // layer's bounds center: a "." sits low on the baseline, so the layer
+        // center is well above the visible dot. Offsetting to the ink center
+        // keeps the flower + pistil exactly on the period.
+        let dotInkOffset = dotInkCenterOffset(font: font, layerHeight: dotLayer.bounds.height)
+        bloomDotAnchor = CGPoint(x: dotRest.x + dotInkOffset.x, y: dotRest.y + dotInkOffset.y)
+        bloomDotDiameter = dotInkOffset.diameter
 
         // "Research Now" button, centered below the title.
         let buttonSize = NSSize(width: 160, height: buttonHeight)
@@ -149,7 +178,6 @@ enum SplashWindowController {
         hasFiredResearchNow = false
         bloomTitleContainer = titleContainer
         bloomButton = button
-        bloomDotRest = dotRest
 
         let target = ResearchNowTarget {
             MainActor.assumeIsolated { beginBloom() }
@@ -170,11 +198,11 @@ enum SplashWindowController {
 
         window = splash
 
-        // Kick the roll-in animation off now that the window is on screen.
+        // Kick the "P et al." → "Petal." intro off now that the window is up.
         animateTitleIn(
-            pet: petLayer, dot: dotLayer, al: alLayer,
-            petRest: petRest, alRest: alRest,
-            titleHeight: titleHeight, windowWidth: windowWidth
+            layers: [pLayer, etLayer, alLayer, dotLayer],
+            startPositions: [pStart, etStart, alStart, dotStart],
+            restPositions: [pRest, etRest, alRest, dotRest]
         )
     }
 
@@ -225,7 +253,7 @@ enum SplashWindowController {
         // itself is invisible; the subviews are shifted by the frame delta so
         // the wordmark does not move on screen. This gives the flower room to
         // radiate 360° from the dot without clipping against window bounds.
-        let dotInWindow = titleContainer.convert(bloomDotRest, to: nil)
+        let dotInWindow = titleContainer.convert(bloomDotAnchor, to: nil)
         let dotOnScreen = splash.convertPoint(toScreen: dotInWindow)
         let side = bloomCanvasSide
         let newFrame = NSRect(
@@ -244,6 +272,10 @@ enum SplashWindowController {
         splash.hasShadow = false
         rootLayer.backgroundColor = NSColor.clear.cgColor
         bloomButton?.isHidden = true
+        // The letters ("P", "et", "al") and the text "." vanish at once — only
+        // the period lives on, reborn as the pistil disc spawned at its exact
+        // ink center just below (same on-screen point, seamless hand-off).
+        titleContainer.isHidden = true
 
         splash.setFrame(newFrame, display: false)
         let delta = CGPoint(x: oldOrigin.x - newFrame.origin.x,
@@ -255,9 +287,9 @@ enum SplashWindowController {
         CATransaction.commit()
         splash.invalidateShadow()
 
-        // The flower's center: the dot's position expressed in the (resized)
+        // The flower's center: the dot's ink center expressed in the (resized)
         // content view's coordinate space — by construction the canvas center.
-        let flowerCenter = contentView.convert(bloomDotRest, from: titleContainer)
+        let flowerCenter = contentView.convert(bloomDotAnchor, from: titleContainer)
 
         // --- 2. Build the flower ---------------------------------------------
         // Petals live in a zero-bounds container layer at the flower center,
@@ -299,21 +331,49 @@ enum SplashWindowController {
         }
         rootLayer.insertSublayer(flowerLayer, at: 0)
 
-        // Yellow pistil: a small rounded center (yellow disc with a soft
-        // orange core), drawn above the petals AND above the wordmark so the
-        // "." reads as the flower's center once it blooms.
+        // --- The period BECOMES the pistil -----------------------------------
+        // A container anchored EXACTLY on the period's ink center. It starts
+        // dot-sized (scale ≈ dotDiameter / pistil size) and dark like the "."
+        // so it reads as the very same dot the wordmark left behind, then, in
+        // one continuous motion, grows, rotates, and its disc morphs from the
+        // period's color to yellow — the period turning into the flower's
+        // center. Drawn above the petals AND the (hidden) wordmark.
+        let pistilRadius: CGFloat = 15
         let pistil = CALayer()
         pistil.position = flowerCenter
         pistil.bounds = .zero
         pistil.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+
         let pistilDisc = CAShapeLayer()
-        pistilDisc.path = CGPath(ellipseIn: CGRect(x: -14, y: -14, width: 28, height: 28), transform: nil)
-        pistilDisc.fillColor = NSColor.systemYellow.cgColor
-        let pistilCore = CAShapeLayer()
-        pistilCore.path = CGPath(ellipseIn: CGRect(x: -5.5, y: -5.5, width: 11, height: 11), transform: nil)
-        pistilCore.fillColor = NSColor.systemOrange.withAlphaComponent(0.85).cgColor
+        pistilDisc.path = CGPath(ellipseIn: CGRect(x: -pistilRadius, y: -pistilRadius,
+                                                   width: 2 * pistilRadius, height: 2 * pistilRadius),
+                                 transform: nil)
+        pistilDisc.fillColor = NSColor.systemYellow.cgColor // final color
         pistil.addSublayer(pistilDisc)
-        pistil.addSublayer(pistilCore)
+
+        // Rotating detail (stamen ring + core) that appears in the second half
+        // so the growth reads as a real spinning pistil, not just a disc.
+        let detail = CALayer()
+        detail.bounds = .zero
+        detail.position = .zero
+        let stamenCount = 7
+        for i in 0..<stamenCount {
+            let angle = CGFloat(i) / CGFloat(stamenCount) * 2 * .pi
+            let ring = pistilRadius * 0.52
+            let tip: CGFloat = 2.6
+            let stamen = CAShapeLayer()
+            stamen.path = CGPath(ellipseIn: CGRect(x: cos(angle) * ring - tip,
+                                                   y: sin(angle) * ring - tip,
+                                                   width: 2 * tip, height: 2 * tip),
+                                 transform: nil)
+            stamen.fillColor = NSColor.systemOrange.cgColor
+            detail.addSublayer(stamen)
+        }
+        let core = CAShapeLayer()
+        core.path = CGPath(ellipseIn: CGRect(x: -5, y: -5, width: 10, height: 10), transform: nil)
+        core.fillColor = NSColor.systemOrange.withAlphaComponent(0.9).cgColor
+        detail.addSublayer(core)
+        pistil.addSublayer(detail)
         rootLayer.addSublayer(pistil)
 
         // --- 3. Choreography ---------------------------------------------------
@@ -349,7 +409,52 @@ enum SplashWindowController {
             let delay = ring2Begin + CFTimeInterval(index) * ring2Stagger
             petal.add(petalGrowAnimation(delay: delay, duration: ring2Duration), forKey: "grow")
         }
-        pistil.add(petalGrowAnimation(delay: 0.05, duration: heroDuration), forKey: "grow")
+
+        // Period → pistil morph: one continuous grow + spin + color change,
+        // concurrent with the hero petal.
+        let now = CACurrentMediaTime()
+        let startScale = max(bloomDotDiameter / (2 * pistilRadius), 0.1)
+
+        let pistilGrow = CAKeyframeAnimation(keyPath: "transform.scale")
+        pistilGrow.values = [startScale, 1.06, 1.0]
+        pistilGrow.keyTimes = [0.0, 0.78, 1.0]
+        pistilGrow.timingFunctions = [
+            CAMediaTimingFunction(name: .easeOut),
+            CAMediaTimingFunction(name: .easeInEaseOut)
+        ]
+        let pistilSpin = CABasicAnimation(keyPath: "transform.rotation.z")
+        pistilSpin.fromValue = -CGFloat.pi * 0.9 // unwinds to 0 as it grows
+        pistilSpin.toValue = 0
+        let pistilMove = CAAnimationGroup()
+        pistilMove.animations = [pistilGrow, pistilSpin]
+        pistilMove.duration = heroDuration
+        pistilMove.beginTime = now
+        pistilMove.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        pistilMove.fillMode = .backwards
+        pistilMove.isRemovedOnCompletion = true
+        pistil.add(pistilMove, forKey: "morph")
+
+        // Disc color: the period's ink color → yellow, over the first ~¾.
+        let colorMorph = CABasicAnimation(keyPath: "fillColor")
+        colorMorph.fromValue = NSColor.labelColor.cgColor
+        colorMorph.toValue = NSColor.systemYellow.cgColor
+        colorMorph.duration = heroDuration * 0.75
+        colorMorph.beginTime = now
+        colorMorph.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        colorMorph.fillMode = .backwards
+        colorMorph.isRemovedOnCompletion = true
+        pistilDisc.add(colorMorph, forKey: "colorMorph")
+
+        // Stamen ring + core fade in over the second half.
+        let detailFade = CABasicAnimation(keyPath: "opacity")
+        detailFade.fromValue = 0
+        detailFade.toValue = 1
+        detailFade.duration = heroDuration * 0.55
+        detailFade.beginTime = now + heroDuration * 0.45
+        detailFade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        detailFade.fillMode = .backwards
+        detailFade.isRemovedOnCompletion = true
+        detail.add(detailFade, forKey: "detailFade")
 
         CATransaction.commit()
 
@@ -389,49 +494,47 @@ enum SplashWindowController {
         return petal
     }
 
-    /// Returns the outline of a single flower petal as a closed `CGPath`.
-    ///
-    /// The path is built in a y-up (non-flipped) coordinate space: the petal's
-    /// base — the point that attaches to the flower's center — sits at the
-    /// origin `(0, 0)` and the tip at `(0, length)`, so the petal points along
-    /// +y. The silhouette is a symmetric teardrop/leaf: softly pointed at the
-    /// base, swelling to its maximum `width` at ~42% of the length, then
-    /// tapering to a softly rounded-but-pointed tip. It is assembled from four
-    /// cubic Bézier segments (two per side); the control points adjacent to
-    /// the base, tip, and widest point sit on vertical lines so the left and
-    /// right halves meet with matching tangents and no visible kinks.
+    /// Builds a symmetric teardrop petal in a y-up (non-flipped) coordinate
+    /// space. The base attaches to the flower center at (0,0) with a soft
+    /// point, the body swells to ~`width` at ~42% of `length`, and the TIP is a
+    /// smooth rounded dome (the two sides curve over into each other across a
+    /// rounded cap through the apex) rather than meeting at a sharp point.
     private static func petalPath(length: CGFloat, width: CGFloat) -> CGPath {
         let path = CGMutablePath()
-
         let halfWidth = width / 2
-        let widestY = length * 0.42 // height at which the petal is widest
+        let widestY = length * 0.42
+        // Near-tip shoulder points: slightly off-axis and below the very top,
+        // where each side stops rising and rolls over into the rounded cap.
+        let tipX = halfWidth * 0.42
+        let tipY = length * 0.86
 
-        // Base -> right widest point.
+        // Base -> right belly (soft base + swelling belly).
         path.move(to: CGPoint(x: 0, y: 0))
-        path.addCurve(
-            to: CGPoint(x: halfWidth, y: widestY),
+        path.addCurve(to: CGPoint(x: halfWidth, y: widestY),
             control1: CGPoint(x: 0, y: length * 0.14),
-            control2: CGPoint(x: halfWidth, y: widestY - length * 0.16)
-        )
-        // Right widest point -> tip.
-        path.addCurve(
-            to: CGPoint(x: 0, y: length),
+            control2: CGPoint(x: halfWidth, y: widestY - length * 0.16))
+        // Right belly -> right shoulder (side climbs and eases inward).
+        path.addCurve(to: CGPoint(x: tipX, y: tipY),
             control1: CGPoint(x: halfWidth, y: widestY + length * 0.20),
-            control2: CGPoint(x: 0, y: length - length * 0.10)
-        )
-        // Tip -> left widest point (mirror of the upper-right curve).
-        path.addCurve(
-            to: CGPoint(x: -halfWidth, y: widestY),
-            control1: CGPoint(x: 0, y: length - length * 0.10),
-            control2: CGPoint(x: -halfWidth, y: widestY + length * 0.20)
-        )
-        // Left widest point -> base (mirror of the lower-right curve).
-        path.addCurve(
-            to: CGPoint(x: 0, y: 0),
+            control2: CGPoint(x: halfWidth * 0.82, y: tipY - length * 0.02))
+        // Right shoulder -> apex; control2 is level (y == length) for a
+        // HORIZONTAL tangent at the top.
+        path.addCurve(to: CGPoint(x: 0, y: length),
+            control1: CGPoint(x: tipX, y: tipY + length * 0.08),
+            control2: CGPoint(x: tipX, y: length))
+        // Apex -> left shoulder; control1 is level (mirror), so the tangent is
+        // continuous across the apex -> no corner, a rounded dome.
+        path.addCurve(to: CGPoint(x: -tipX, y: tipY),
+            control1: CGPoint(x: -tipX, y: length),
+            control2: CGPoint(x: -tipX, y: tipY + length * 0.08))
+        // Left shoulder -> left belly (mirror of the right side).
+        path.addCurve(to: CGPoint(x: -halfWidth, y: widestY),
+            control1: CGPoint(x: -halfWidth * 0.82, y: tipY - length * 0.02),
+            control2: CGPoint(x: -halfWidth, y: widestY + length * 0.20))
+        // Left belly -> base (mirror).
+        path.addCurve(to: CGPoint(x: 0, y: 0),
             control1: CGPoint(x: -halfWidth, y: widestY - length * 0.16),
-            control2: CGPoint(x: 0, y: length * 0.14)
-        )
-
+            control2: CGPoint(x: 0, y: length * 0.14))
         path.closeSubpath()
         return path
     }
@@ -483,25 +586,24 @@ enum SplashWindowController {
         return group
     }
 
-    /// Animates the two wordmark halves rolling in from opposite window edges
-    /// to meet at the static centered ".". "Pet" enters from the left rolling
-    /// clockwise; "al" enters from the right rolling counter-clockwise. Each
-    /// roll couples a horizontal translation with a rotation whose magnitude is
-    /// the travel distance divided by an effective wheel radius, so the letters
-    /// read as wheels rather than sliding tiles.
+    /// Intro animation: the four glyph layers appear SPACED APART as the
+    /// academic citation "P et al.", hold for ~1s, then smoothly slide together
+    /// (closing the gaps) into the single word "Petal.". Each layer's model
+    /// position is already at its closed rest; a `position.x` animation with
+    /// `.backwards` fill holds it at the spaced start during the hold, then
+    /// eases it home. A brief opacity fade at t0 lets the wordmark "arrive".
     ///
-    /// Honors Reduce Motion by skipping the roll and gently fading the title in
-    /// at its resting position instead.
+    /// Honors Reduce Motion by skipping the hold + slide and simply fading the
+    /// wordmark in at its final "Petal." positions.
     private static func animateTitleIn(
-        pet: CATextLayer, dot: CATextLayer, al: CATextLayer,
-        petRest: CGPoint, alRest: CGPoint,
-        titleHeight: CGFloat, windowWidth: CGFloat
+        layers: [CATextLayer],
+        startPositions: [CGPoint],
+        restPositions: [CGPoint]
     ) {
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
 
         if reduceMotion {
-            // Quick, motion-free fade so the title still "arrives".
-            for layer in [pet, dot, al] {
+            for layer in layers {
                 let fade = CABasicAnimation(keyPath: "opacity")
                 fade.fromValue = 0
                 fade.toValue = 1
@@ -512,61 +614,66 @@ enum SplashWindowController {
             return
         }
 
-        let duration: CFTimeInterval = 0.75
-        let ease = CAMediaTimingFunction(name: .easeOut)
-        // Effective rolling radius: half the glyph band. angle = distance / r.
-        let radius = max(titleHeight / 2, 1)
+        let fadeDuration: CFTimeInterval = 0.35
+        let holdDuration: CFTimeInterval = 1.0
+        let slideDuration: CFTimeInterval = 0.55
+        let now = CACurrentMediaTime()
+        let slideEase = CAMediaTimingFunction(name: .easeInEaseOut)
 
-        // "Pet": starts fully off the LEFT edge, rolls right (clockwise → the
-        // angle unwinds from +mag down to 0).
-        let petStartX = -pet.bounds.width / 2 - 30
-        let petDistance = petRest.x - petStartX
-        addRoll(to: pet, fromX: petStartX, toX: petRest.x,
-                startAngle: petDistance / radius, duration: duration, timing: ease)
+        for (index, layer) in layers.enumerated() {
+            let start = startPositions[index]
+            let rest = restPositions[index]
 
-        // "al": starts fully off the RIGHT edge, rolls left (counter-clockwise
-        // → the angle winds from -mag up to 0).
-        let alStartX = windowWidth + al.bounds.width / 2 + 30
-        let alDistance = alStartX - alRest.x
-        addRoll(to: al, fromX: alStartX, toX: alRest.x,
-                startAngle: -(alDistance / radius), duration: duration, timing: ease)
+            // Fade the whole wordmark in at t0 (over the spaced layout).
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = fadeDuration
+            fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            fade.beginTime = now
+            fade.fillMode = .backwards
+            layer.add(fade, forKey: "fadeIn")
 
-        // The "." is a static center anchor; fade it in over the first part of
-        // the roll so it "lands" roughly as the halves converge on it.
-        let dotFade = CABasicAnimation(keyPath: "opacity")
-        dotFade.fromValue = 0
-        dotFade.toValue = 1
-        dotFade.duration = duration * 0.5
-        dotFade.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        dot.add(dotFade, forKey: "dotFade")
+            // Slide from spaced start to closed rest, after the hold. `.et`
+            // (start == rest) yields a no-op slide, which is correct — it is
+            // the pivot the others close toward.
+            let slide = CABasicAnimation(keyPath: "position.x")
+            slide.fromValue = start.x
+            slide.toValue = rest.x
+            slide.duration = slideDuration
+            slide.timingFunction = slideEase
+            slide.beginTime = now + fadeDuration + holdDuration
+            slide.fillMode = .backwards
+            slide.isRemovedOnCompletion = true
+            layer.add(slide, forKey: "slideTogether")
+        }
     }
 
-    /// Adds a coupled translation + rotation "roll" animation to `layer`. The
-    /// layer's model values are assumed to already be at their resting state
-    /// (final x, rotation 0); `.backwards` fill makes it appear at the start
-    /// pose before the animation begins.
-    private static func addRoll(
-        to layer: CALayer,
-        fromX: CGFloat, toX: CGFloat,
-        startAngle: CGFloat,
-        duration: CFTimeInterval,
-        timing: CAMediaTimingFunction
-    ) {
-        let move = CABasicAnimation(keyPath: "position.x")
-        move.fromValue = fromX
-        move.toValue = toX
-
-        let spin = CABasicAnimation(keyPath: "transform.rotation.z")
-        spin.fromValue = startAngle
-        spin.toValue = 0
-
-        let group = CAAnimationGroup()
-        group.animations = [move, spin]
-        group.duration = duration
-        group.timingFunction = timing
-        group.fillMode = .backwards
-        group.isRemovedOnCompletion = true
-        layer.add(group, forKey: "rollIn")
+    /// Computes the offset from a "." text layer's bounds center to the visible
+    /// dot ink's center, plus the dot's ink diameter. A period glyph sits low
+    /// on the baseline, so a full-line-height `CATextLayer`'s geometric center
+    /// is well above the ink; the returned `y` (typically negative in the y-up
+    /// layer space) shifts an anchor down onto the actual dot. `x` is ~0 since
+    /// the glyph is horizontally centered by the layer's `.center` alignment.
+    private static func dotInkCenterOffset(
+        font: NSFont, layerHeight: CGFloat
+    ) -> (x: CGFloat, y: CGFloat, diameter: CGFloat) {
+        let ctFont = font as CTFont
+        var character: UniChar = 46 // "."
+        var glyph = CGGlyph(0)
+        guard CTFontGetGlyphsForCharacters(ctFont, &character, &glyph, 1) else {
+            return (0, 0, 6)
+        }
+        var g = glyph
+        let inkBounds = CTFontGetBoundingRectsForGlyphs(ctFont, .default, &g, nil, 1)
+        let ascent = CTFontGetAscent(ctFont)
+        // Baseline height from the layer bottom (y-up): the single text line's
+        // ascent hangs from the layer top, so baseline = height - ascent.
+        let baselineY = layerHeight - ascent
+        let inkCenterY = baselineY + inkBounds.midY
+        let dy = inkCenterY - layerHeight / 2
+        let diameter = max(inkBounds.width, inkBounds.height)
+        return (0, dy, diameter)
     }
 
     /// Builds the wordmark font. We approximate *Nature* magazine's bespoke,
