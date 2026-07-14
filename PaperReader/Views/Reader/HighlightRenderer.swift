@@ -62,6 +62,45 @@ enum BoundingBoxCodec {
 /// here — callers persist/lookup `Highlight` rows via `HighlightRepository` and
 /// use this type only to draw/erase the corresponding `PDFAnnotation`s.
 enum HighlightRenderer {
+    static func locate(sentence: String, on page: PDFPage) -> [CGRect] {
+        guard let pageText = page.string, !sentence.isEmpty else { return [] }
+
+        let foundRange: NSRange?
+        if let range = pageText.range(of: sentence) {
+            foundRange = NSRange(range, in: pageText)
+        } else {
+            let tokens = sentence.split(whereSeparator: { $0.isWhitespace })
+            guard !tokens.isEmpty else { return [] }
+            let pattern = tokens
+                .map { NSRegularExpression.escapedPattern(for: String($0)) }
+                .joined(separator: "\\s+")
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+            let whole = NSRange(pageText.startIndex..<pageText.endIndex, in: pageText)
+            foundRange = regex.firstMatch(in: pageText, range: whole)?.range
+        }
+
+        guard let foundRange, foundRange.location != NSNotFound,
+              foundRange.length > 0,
+              let selection = page.selection(for: foundRange)
+        else { return [] }
+
+        return selection.selectionsByLine().compactMap { line in
+            let rect = line.bounds(for: page)
+            return rect.isNull || rect.isEmpty ? nil : rect
+        }
+    }
+
+    /// Adds orange, translucent pending markers that are distinct from stored highlights.
+    static func addProposalAnnotations(rects: [CGRect], on page: PDFPage) -> [PDFAnnotation] {
+        rects.compactMap { rect in
+            guard !rect.isNull, !rect.isEmpty else { return nil }
+            let annotation = PDFAnnotation(bounds: rect, forType: .highlight, withProperties: nil)
+            annotation.color = NSColor.systemOrange.withAlphaComponent(0.28)
+            page.addAnnotation(annotation)
+            return annotation
+        }
+    }
+
     /// Splits a `PDFSelection` into per-page spans, handling selections that
     /// cross a page break by producing one span per page touched.
     static func spans(from selection: PDFSelection, in document: PDFDocument) -> [SelectionSpan] {

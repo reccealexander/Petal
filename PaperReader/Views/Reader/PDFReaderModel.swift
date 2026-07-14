@@ -20,8 +20,26 @@ final class PDFReaderModel: ObservableObject {
     }
 
     @Published var hasSelection = false
+    @Published var isAIAssistModeActive = false
+    @Published var isSuggestingKeyIdeas = false
+    @Published var keyIdeaProposals: [KeyIdeaProposal] = []
+    @Published var keyIdeaError: String?
+
     var performAddHighlight: ((HighlightColor) -> Void)?
     func addHighlight(_ color: HighlightColor) { performAddHighlight?(color) }
+
+    var performSuggestKeyIdeas: (() -> Void)?
+    func suggestKeyIdeas() { performSuggestKeyIdeas?() }
+    var performAcceptKeyIdea: ((UUID) -> Void)?
+    func acceptKeyIdea(_ id: UUID) { performAcceptKeyIdea?(id) }
+    var performAcceptAllKeyIdeas: (() -> Void)?
+    func acceptAllKeyIdeas() { performAcceptAllKeyIdeas?() }
+    var performDismissKeyIdea: ((UUID) -> Void)?
+    func dismissKeyIdea(_ id: UUID) { performDismissKeyIdea?(id) }
+    var performClearKeyIdeaProposals: (() -> Void)?
+    func clearKeyIdeaProposals() { performClearKeyIdeaProposals?() }
+    var provideHasGeminiKey: (() -> Bool)?
+    func hasGeminiKey() -> Bool { provideHasGeminiKey?() ?? false }
 
     /// Index of the page currently in view, kept in sync by the coordinator's
     /// `.PDFViewPageChanged` observer. The thumbnail sidebar reads this to

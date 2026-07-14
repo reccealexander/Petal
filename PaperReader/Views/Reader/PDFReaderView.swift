@@ -29,6 +29,7 @@ struct PDFReaderView: View {
     @StateObject private var tagPopoverModel: ReaderTagPopoverModel
     @StateObject private var bookmarkStore: PageBookmarkStore
     @State private var isTagPopoverPresented = false
+    @State private var isKeyIdeaPopoverPresented = false
     @State private var readerWindow: NSWindow?
     @State private var savedWindowAppearance: WindowAppearance?
     @State private var readingStatus: ReadingStatus
@@ -167,6 +168,12 @@ struct PDFReaderView: View {
                 }
                 if let readerWindow { updateWindowAppearance(for: readerWindow) }
             }
+            .onChange(of: model.isAIAssistModeActive) { _, isActive in
+                if !isActive {
+                    isKeyIdeaPopoverPresented = false
+                    model.clearKeyIdeaProposals()
+                }
+            }
             .onExitCommand {
                 if focus.isActive { focus.exit() }
             }
@@ -272,6 +279,35 @@ struct PDFReaderView: View {
                     }
                     .keyboardShortcut("a", modifiers: [.command, .shift])
                     .help("Ask AI about this paper")
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        model.isAIAssistModeActive.toggle()
+                    } label: {
+                        Label("AI Notes", systemImage: model.isAIAssistModeActive
+                              ? "wand.and.stars.inverse" : "wand.and.stars")
+                            .foregroundStyle(model.isAIAssistModeActive ? Color.accentColor : Color.primary)
+                    }
+                    .help(model.hasGeminiKey()
+                          ? "Toggle AI-assisted note-taking"
+                          : "Add a Gemini API key in Settings to use AI Notes")
+                    .disabled(!model.hasGeminiKey())
+                }
+
+                if model.isAIAssistModeActive {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            isKeyIdeaPopoverPresented = true
+                            model.suggestKeyIdeas()
+                        } label: {
+                            Label("Suggest key ideas", systemImage: "text.badge.star")
+                        }
+                        .help("Suggest key ideas on the current page")
+                        .popover(isPresented: $isKeyIdeaPopoverPresented) {
+                            KeyIdeaSuggestionPopover(model: model)
+                        }
+                    }
                 }
 
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -525,6 +561,61 @@ struct PDFReaderView: View {
             status: status.rawValue
         )) != nil else { return }
         readingStatus = status
+    }
+}
+
+private struct KeyIdeaSuggestionPopover: View {
+    @ObservedObject var model: PDFReaderModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Key ideas")
+                    .font(.headline)
+                Spacer()
+                if model.keyIdeaProposals.count >= 2 {
+                    Button("Accept all") { model.acceptAllKeyIdeas() }
+                }
+            }
+
+            if model.isSuggestingKeyIdeas {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Finding key ideas…")
+                        .foregroundStyle(.secondary)
+                }
+            } else if let error = model.keyIdeaError {
+                Text(error)
+                    .foregroundStyle(.red)
+            } else if model.keyIdeaProposals.isEmpty {
+                ContentUnavailableView(
+                    "No key ideas found on this page",
+                    systemImage: "text.badge.xmark"
+                )
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(model.keyIdeaProposals) { proposal in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(proposal.sentence)
+                                    .lineLimit(3)
+                                HStack {
+                                    Button("Accept") { model.acceptKeyIdea(proposal.id) }
+                                    Button("Dismiss", role: .cancel) {
+                                        model.dismissKeyIdea(proposal.id)
+                                    }
+                                }
+                                Divider()
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 320)
+            }
+        }
+        .padding()
+        .frame(width: 390)
     }
 }
 

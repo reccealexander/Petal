@@ -162,6 +162,12 @@ struct PDFKitWrapper: NSViewRepresentable {
         model.provideSurroundingText = { [weak coord] in coord?.currentPageText() }
         model.providePageText = { [weak coord] in coord?.currentPageText() }
         model.provideOpenHighlight = { [weak coord] in coord?.openHighlightForQuickAction() }
+        model.performSuggestKeyIdeas = { [weak coord] in coord?.suggestKeyIdeasForCurrentPage() }
+        model.performAcceptKeyIdea = { [weak coord] id in coord?.acceptKeyIdea(id) }
+        model.performAcceptAllKeyIdeas = { [weak coord] in coord?.acceptAllKeyIdeas() }
+        model.performDismissKeyIdea = { [weak coord] id in coord?.dismissKeyIdea(id) }
+        model.performClearKeyIdeaProposals = { [weak coord] in coord?.clearKeyIdeaProposals() }
+        model.provideHasGeminiKey = { [weak coord] in coord?.keyIdeaService.hasAPIKey ?? false }
         coord.rehydrate()
 
         // The view's bounds are typically still zero at this point (SwiftUI
@@ -182,6 +188,7 @@ struct PDFKitWrapper: NSViewRepresentable {
             pdfView.onPreviousChapter = onPreviousChapter
         }
         if nsView.document?.documentURL != url {
+            context.coordinator.clearKeyIdeaProposals()
             nsView.document = PDFDocument(url: url)
             context.coordinator.didApplyInitialZoom = false
             context.coordinator.rehydrate()
@@ -205,6 +212,8 @@ struct PDFKitWrapper: NSViewRepresentable {
         weak var pdfView: AnnotatablePDFView?
         var tracked: [PDFAnnotation] = []
         var annotationToId: [PDFAnnotation: String] = [:]
+        private var proposedAnnotations: [KeyIdeaProposal.ID: [PDFAnnotation]] = [:]
+        let keyIdeaService = KeyIdeaSuggestionService()
         var popover: NSPopover?
 
         /// The id of the highlight most recently opened (comment popover shown)
@@ -255,6 +264,7 @@ struct PDFKitWrapper: NSViewRepresentable {
             guard let pdfView, let document = pdfView.document,
                   let page = pdfView.currentPage
             else { return }
+            clearKeyIdeaProposals()
             model.currentPageIndex = document.index(for: page)
             resumeAutosave.schedule()
         }
@@ -394,6 +404,85 @@ struct PDFKitWrapper: NSViewRepresentable {
             pdfView.clearSelection()
             model.hasSelection = false
             rehydrate()
+        }
+
+        func suggestKeyIdeasForCurrentPage() {
+            guard let pdfView, let document = pdfView.document,
+                  let page = pdfView.currentPage, let text = page.string
+            else { return }
+            let pageIndex = document.index(for: page)
+            guard pageIndex != NSNotFound else { return }
+
+            clearKeyIdeaProposals()
+            model.isSuggestingKeyIdeas = true
+            model.keyIdeaError = nil
+
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.model.isSuggestingKeyIdeas = false }
+                do {
+                    let sentences = try await self.keyIdeaService.suggestKeyIdeas(pageText: text)
+                    guard self.model.isAIAssistModeActive,
+                          self.pdfView?.currentPage === page
+                    else { return }
+                    var proposals: [KeyIdeaProposal] = []
+                    for sentence in sentences {
+                        let rects = HighlightRenderer.locate(sentence: sentence, on: page)
+                        guard !rects.isEmpty else { continue }
+                        let proposal = KeyIdeaProposal(
+                            id: UUID(), sentence: sentence, pageIndex: pageIndex, rects: rects
+                        )
+                        self.proposedAnnotations[proposal.id] =
+                            HighlightRenderer.addProposalAnnotations(rects: rects, on: page)
+                        proposals.append(proposal)
+                    }
+                    self.model.keyIdeaProposals = proposals
+                } catch GeminiClientError.missingAPIKey {
+                    self.model.keyIdeaError = "No Gemini key — add one in Settings"
+                } catch {
+                    self.model.keyIdeaError = "Couldn’t suggest key ideas. Please try again."
+                }
+            }
+        }
+
+        func acceptKeyIdea(_ id: UUID) {
+            guard let proposal = model.keyIdeaProposals.first(where: { $0.id == id }) else { return }
+            let row = Highlight(
+                paperId: paperId, page: proposal.pageIndex,
+                boundingBoxes: BoundingBoxCodec.encode(proposal.rects),
+                color: HighlightColor.yellow.rawValue, selectedText: proposal.sentence
+            )
+            try? repository.insertHighlights([row])
+            removeProposal(id)
+            rehydrate()
+        }
+
+        func acceptAllKeyIdeas() {
+            let rows = model.keyIdeaProposals.map { proposal in
+                Highlight(
+                    paperId: paperId, page: proposal.pageIndex,
+                    boundingBoxes: BoundingBoxCodec.encode(proposal.rects),
+                    color: HighlightColor.yellow.rawValue, selectedText: proposal.sentence
+                )
+            }
+            guard !rows.isEmpty else { return }
+            try? repository.insertHighlights(rows)
+            clearKeyIdeaProposals()
+            rehydrate()
+        }
+
+        func dismissKeyIdea(_ id: UUID) { removeProposal(id) }
+
+        private func removeProposal(_ id: UUID) {
+            HighlightRenderer.removeAnnotations(proposedAnnotations[id] ?? [])
+            proposedAnnotations[id] = nil
+            model.keyIdeaProposals.removeAll { $0.id == id }
+        }
+
+        func clearKeyIdeaProposals() {
+            proposedAnnotations.values.forEach(HighlightRenderer.removeAnnotations)
+            proposedAnnotations.removeAll()
+            model.keyIdeaProposals.removeAll()
         }
 
         /// Removes every tracked annotation and redraws all of this paper's
