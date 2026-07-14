@@ -646,8 +646,8 @@ enum SplashWindowController {
         }
 
         let fadeDuration: CFTimeInterval = 0.35
-        let holdDuration: CFTimeInterval = 1.0
-        let slideDuration: CFTimeInterval = 0.3
+        let holdDuration: CFTimeInterval = 0.5
+        let slideDuration: CFTimeInterval = 0.55
         let now = CACurrentMediaTime()
         let slideEase = CAMediaTimingFunction(name: .easeInEaseOut)
 
