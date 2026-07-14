@@ -227,6 +227,12 @@ struct PDFKitWrapper: NSViewRepresentable {
         private var inFlightPages: Set<Int> = []
         private var autoSuggestTask: Task<Void, Never>?
         private var sweepOverlay: SweepOverlayView?
+        /// One-shot hand-off for the running sweep: adds the persistent plain
+        /// highlights and tears down the overlay. Invoked by whichever happens
+        /// first — the CA completion, or a scroll (the overlay lives in the
+        /// PDFView's non-scrolling space, so scrolling mid-animation would
+        /// otherwise slide the bars out of line with the text).
+        private var finalizeSweepAction: (() -> Void)?
         private var proposalGeneration = 0
         let keyIdeaService = KeyIdeaSuggestionService()
         var popover: NSPopover?
@@ -296,6 +302,11 @@ struct PDFKitWrapper: NSViewRepresentable {
         /// so bounds changes also feed the same lightweight debounce.
         @objc func scrollChanged(_ note: Notification) {
             resumeAutosave.schedule()
+            // The sweep overlay lives in the PDFView's non-scrolling space, so a
+            // scroll mid-animation would misalign the bars with the text. Finish
+            // the hand-off now: the persistent highlights are page annotations
+            // that scroll correctly.
+            finalizeSweepAction?()
         }
 
         func saveResumePositionNow() {
@@ -497,23 +508,28 @@ struct PDFKitWrapper: NSViewRepresentable {
             }
 
             let generation = proposalGeneration
+            // One-shot hand-off: add the persistent plain highlights (which live
+            // on the page and scroll correctly) and remove the overlay. Runs on
+            // CA completion, or earlier if the user scrolls.
+            finalizeSweepAction = { [weak self] in
+                guard let self else { return }
+                self.finalizeSweepAction = nil
+                if self.proposalGeneration == generation,
+                   self.model.currentPageIndex == pageIndex,
+                   let document = self.pdfView?.document,
+                   let page = document.page(at: pageIndex) {
+                    for proposal in (self.proposalsByPage[pageIndex] ?? []) {
+                        guard self.proposedAnnotations[proposal.id] != nil else { continue }
+                        let bodies = HighlightRenderer.addProposalAnnotations(rects: proposal.rects, on: page)
+                        self.proposedAnnotations[proposal.id, default: []].append(contentsOf: bodies)
+                    }
+                    self.invalidateSweepDisplay()
+                }
+                self.removeSweepOverlay()
+            }
             CATransaction.begin()
             CATransaction.setCompletionBlock { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    if self.proposalGeneration == generation,
-                       self.model.currentPageIndex == pageIndex,
-                       let document = self.pdfView?.document,
-                       let page = document.page(at: pageIndex) {
-                        for proposal in (self.proposalsByPage[pageIndex] ?? []) {
-                            guard self.proposedAnnotations[proposal.id] != nil else { continue }
-                            let bodies = HighlightRenderer.addProposalAnnotations(rects: proposal.rects, on: page)
-                            self.proposedAnnotations[proposal.id, default: []].append(contentsOf: bodies)
-                        }
-                        self.invalidateSweepDisplay()
-                    }
-                    self.removeSweepOverlay()
-                }
+                MainActor.assumeIsolated { self?.finalizeSweepAction?() }
             }
             for bar in bars {
                 let animation = CABasicAnimation(keyPath: "transform.scale.x")
@@ -532,6 +548,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         private func removeSweepOverlay() {
             sweepOverlay?.removeFromSuperview()
             sweepOverlay = nil
+            finalizeSweepAction = nil
         }
 
         private func invalidateSweepDisplay() {
