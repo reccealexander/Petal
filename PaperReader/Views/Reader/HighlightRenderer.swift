@@ -105,12 +105,25 @@ enum HighlightRenderer {
     static func addProposalLabel(near rects: [CGRect], on page: PDFPage) -> PDFAnnotation? {
         guard let topRect = rects.max(by: { $0.maxY < $1.maxY }) else { return nil }
 
-        let bounds = CGRect(x: topRect.minX, y: topRect.maxY + 4, width: 74, height: 16)
+        let pageRect = page.bounds(for: .cropBox)
+        let inset: CGFloat = 4
+        let leftMargin = topRect.minX - pageRect.minX
+        var x: CGFloat
+        let width: CGFloat = 52
+        let height: CGFloat = 13
+        if leftMargin >= width + 2 * inset {
+            x = pageRect.minX + inset
+        } else {
+            x = pageRect.maxX - width - inset
+        }
+        let proposedY = topRect.midY - height / 2
+        let y = min(max(proposedY, pageRect.minY + 1), pageRect.maxY - height - 1)
+        let bounds = CGRect(x: x, y: y, width: width, height: height)
         let annotation = PDFAnnotation(bounds: bounds, forType: .freeText, withProperties: nil)
         annotation.contents = "Key Insight"
-        annotation.font = NSFont.boldSystemFont(ofSize: 9)
+        annotation.font = NSFont.boldSystemFont(ofSize: 8)
         annotation.fontColor = .white
-        annotation.color = .systemOrange
+        annotation.color = .systemRed
         annotation.alignment = .center
         annotation.isReadOnly = true
         annotation.border = nil
