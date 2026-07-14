@@ -431,19 +431,17 @@ struct PDFKitWrapper: NSViewRepresentable {
 
         private func renderProposals(forPage pageIndex: Int, animated: Bool = false) {
             removeDrawnProposalAnnotations()
-            guard let document = pdfView?.document,
-                  let page = document.page(at: pageIndex)
-            else {
+            guard let document = pdfView?.document, let page = document.page(at: pageIndex) else {
                 model.keyIdeaProposals = []
                 return
             }
 
             let proposals = proposalsByPage[pageIndex] ?? []
             for proposal in proposals {
-                var annotations = HighlightRenderer.addProposalAnnotations(
-                    rects: proposal.rects,
-                    on: page
-                )
+                var annotations: [PDFAnnotation] = []
+                if !animated {
+                    annotations.append(contentsOf: HighlightRenderer.addProposalAnnotations(rects: proposal.rects, on: page))
+                }
                 for label in HighlightRenderer.addProposalLabel(near: proposal.rects, on: page) {
                     annotations.append(label)
                     proposalLabelToId[label] = proposal.id
@@ -452,27 +450,15 @@ struct PDFKitWrapper: NSViewRepresentable {
             }
             model.keyIdeaProposals = proposals
 
-            let sweeps = proposedAnnotations.values
-                .flatMap { $0 }
-                .compactMap { $0 as? SweepHighlightAnnotation }
-
-            guard animated, !sweeps.isEmpty else {
-                for sweep in sweeps {
-                    sweep.progress = 1
-                }
-                invalidateSweepDisplay(sweeps)
-                return
+            if animated, !proposals.isEmpty {
+                startSweepOverlayAnimation(for: proposals, page: page, pageIndex: pageIndex)
+            } else {
+                invalidateSweepDisplay()
             }
-
-            for sweep in sweeps {
-                sweep.progress = 0
-            }
-            invalidateSweepDisplay(sweeps)
-            startSweepOverlayAnimation(for: sweeps, page: page, pageIndex: pageIndex)
         }
 
         private func startSweepOverlayAnimation(
-            for sweeps: [SweepHighlightAnnotation],
+            for proposals: [KeyIdeaProposal],
             page: PDFPage,
             pageIndex: Int
         ) {
@@ -488,25 +474,21 @@ struct PDFKitWrapper: NSViewRepresentable {
             let duration = 0.5
             let color = NSColor.systemOrange.withAlphaComponent(0.28).cgColor
             var bars: [CALayer] = []
-            for sweep in sweeps {
-                guard sweep.page != nil else { continue }
-                let viewRect = pdfView.convert(sweep.bounds, from: page)
-                let localRect = overlay.convert(viewRect, from: pdfView)
-                guard localRect.width > 0, localRect.height > 0 else { continue }
+            for proposal in proposals {
+                for rect in proposal.rects {
+                    let viewRect = pdfView.convert(rect, from: page)
+                    let localRect = overlay.convert(viewRect, from: pdfView)
+                    guard localRect.width > 0, localRect.height > 0 else { continue }
 
-                let bar = CALayer()
-                bar.backgroundColor = color
-                bar.anchorPoint = CGPoint(x: 0, y: 0.5)
-                bar.bounds = CGRect(
-                    x: 0,
-                    y: 0,
-                    width: localRect.width,
-                    height: localRect.height
-                )
-                bar.position = CGPoint(x: localRect.minX, y: localRect.midY)
-                bar.transform = CATransform3DMakeScale(0.0001, 1, 1)
-                overlay.layer?.addSublayer(bar)
-                bars.append(bar)
+                    let bar = CALayer()
+                    bar.backgroundColor = color
+                    bar.anchorPoint = CGPoint(x: 0, y: 0.5)
+                    bar.bounds = CGRect(x: 0, y: 0, width: localRect.width, height: localRect.height)
+                    bar.position = CGPoint(x: localRect.minX, y: localRect.midY)
+                    bar.transform = CATransform3DMakeScale(0.0001, 1, 1)
+                    overlay.layer?.addSublayer(bar)
+                    bars.append(bar)
+                }
             }
 
             guard !bars.isEmpty else {
@@ -520,11 +502,15 @@ struct PDFKitWrapper: NSViewRepresentable {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     if self.proposalGeneration == generation,
-                       self.model.currentPageIndex == pageIndex {
-                        for sweep in sweeps {
-                            sweep.progress = 1
+                       self.model.currentPageIndex == pageIndex,
+                       let document = self.pdfView?.document,
+                       let page = document.page(at: pageIndex) {
+                        for proposal in (self.proposalsByPage[pageIndex] ?? []) {
+                            guard self.proposedAnnotations[proposal.id] != nil else { continue }
+                            let bodies = HighlightRenderer.addProposalAnnotations(rects: proposal.rects, on: page)
+                            self.proposedAnnotations[proposal.id, default: []].append(contentsOf: bodies)
                         }
-                        self.invalidateSweepDisplay(sweeps)
+                        self.invalidateSweepDisplay()
                     }
                     self.removeSweepOverlay()
                 }
@@ -548,14 +534,8 @@ struct PDFKitWrapper: NSViewRepresentable {
             sweepOverlay = nil
         }
 
-        private func invalidateSweepDisplay(_ annotations: [SweepHighlightAnnotation]) {
+        private func invalidateSweepDisplay() {
             guard let pdfView, let documentView = pdfView.documentView else { return }
-            // Redraw the whole visible document region. This now fires only on
-            // discrete events (initial hide, cached revisit, and the animation
-            // hand-off) — never per frame — so the cost is negligible. Targeted
-            // per-annotation invalidation did not reliably re-run PDFKit's
-            // annotation drawing, so the static highlight only appeared once a
-            // hover forced a repaint; invalidating the visible rect always does.
             documentView.setNeedsDisplay(documentView.visibleRect)
         }
 
