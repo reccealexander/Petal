@@ -87,7 +87,9 @@ public actor CloudSyncService {
         }
 
         if !serverWins.isEmpty {
-            try store.applyPulled(SyncPullResult(changed: serverWins))
+            // Conflict resolution already decided the server record wins, so
+            // force the apply even over the (still-dirty) local row.
+            try store.applyPulled(SyncPullResult(changed: serverWins), force: true)
         }
         if !toResave.isEmpty {
             let result = try await backend.save(records: toResave, deletions: [])

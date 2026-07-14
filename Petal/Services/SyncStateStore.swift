@@ -63,7 +63,11 @@ public final class SyncStateStore: @unchecked Sendable {
     /// **suppressed**, so the writes don't re-mark the rows dirty. Updates each
     /// applied row's change tag, refreshes affected `search_index` entries, and
     /// advances the stored server change token.
-    public func applyPulled(_ result: SyncPullResult) throws {
+    /// - Parameter force: when true, applies records even over a dirty local
+    ///   row (used by push conflict resolution once last-writer-wins has decided
+    ///   the server record wins). When false (a normal pull), dirty local rows
+    ///   are left untouched so unpushed edits aren't clobbered.
+    public func applyPulled(_ result: SyncPullResult, force: Bool = false) throws {
         try dbQueue.write { db in
             try Self.setSuppress(true, in: db)
             defer { try? Self.setSuppress(false, in: db) }
@@ -73,7 +77,7 @@ public final class SyncStateStore: @unchecked Sendable {
             let changedByType = Dictionary(grouping: result.changed) { $0.id.recordType }
             for type in order {
                 for record in changedByType[type] ?? [] {
-                    try Self.apply(record, in: db)
+                    try Self.apply(record, force: force, in: db)
                 }
             }
             let deletedByType = Dictionary(grouping: result.deleted) { $0.recordType }
@@ -139,18 +143,42 @@ public final class SyncStateStore: @unchecked Sendable {
         return SyncRecord(id: id, fields: fields, changeTag: changeTag)
     }
 
-    /// Upserts a pulled record into its table (`INSERT OR REPLACE`) and records
-    /// its change tag / refreshes FTS. Must run under suppressed tracking.
-    static func apply(_ record: SyncRecord, in db: Database) throws {
+    /// Upserts a pulled record into its table and records its change tag /
+    /// refreshes FTS. Must run under suppressed tracking.
+    ///
+    /// Uses a true `ON CONFLICT(pk) DO UPDATE` upsert, NOT `INSERT OR REPLACE`:
+    /// the latter resolves a PK conflict by DELETE-then-INSERT, which fires
+    /// `ON DELETE CASCADE` and would wipe the row's children (highlights,
+    /// comments, notes, tags…) on every pulled parent update — silent data loss.
+    /// The upsert updates the existing row in place, so no cascade occurs.
+    ///
+    /// If the local row is DIRTY (an unpushed local edit), the pulled record is
+    /// skipped so the edit isn't clobbered; the next push surfaces the conflict
+    /// and last-writer-wins resolves it there.
+    static func apply(_ record: SyncRecord, force: Bool = false, in db: Database) throws {
         guard let entity = SyncedEntity.lookup(record.id.recordType) else { return }
         let columns = Array(record.fields.keys)
         guard !columns.isEmpty else { return }
 
+        if !force {
+            let isDirty = (try Bool.fetchOne(
+                db,
+                sql: "SELECT dirty FROM sync_state WHERE entity_type = ? AND entity_id = ?",
+                arguments: [record.id.recordType, record.id.recordName]
+            )) ?? false
+            if isDirty { return }
+        }
+
         let quotedCols = columns.map { "\"\($0)\"" }.joined(separator: ", ")
         let placeholders = Array(repeating: "?", count: columns.count).joined(separator: ", ")
+        let keyCols = entity.keyColumns.map { "\"\($0)\"" }.joined(separator: ", ")
+        let updates = columns.map { "\"\($0)\" = excluded.\"\($0)\"" }.joined(separator: ", ")
         let values = columns.map { record.fields[$0]!.databaseValue }
         try db.execute(
-            sql: "INSERT OR REPLACE INTO \"\(entity.table)\" (\(quotedCols)) VALUES (\(placeholders))",
+            sql: """
+            INSERT INTO "\(entity.table)" (\(quotedCols)) VALUES (\(placeholders))
+            ON CONFLICT(\(keyCols)) DO UPDATE SET \(updates)
+            """,
             arguments: StatementArguments(values)
         )
 
