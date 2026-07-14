@@ -313,10 +313,12 @@ enum SplashWindowController {
         flowerLayer.bounds = .zero
         flowerLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
 
+        // All 16 petals are identical in size; ring 2 differs only by its
+        // half-step angular interleave and by rendering behind ring 1.
         let ring1Length: CGFloat = 118
         let ring1Width: CGFloat = 46
-        let ring2Length: CGFloat = 92
-        let ring2Width: CGFloat = 40
+        let ring2Length: CGFloat = ring1Length
+        let ring2Width: CGFloat = ring1Width
 
         let ring1Color = NSColor.systemPink
         let ring2Color = NSColor.systemPink.blended(withFraction: 0.22, of: .black) ?? .systemPink
@@ -522,6 +524,10 @@ enum SplashWindowController {
     /// touches the flower center), `position` is the flower center (`.zero`
     /// in the flower container), and the final orientation is baked into the
     /// model `transform` so the grow animation only drives scale/opacity.
+    ///
+    /// Each petal carries a small, soft drop shadow so overlapping petals read
+    /// as distinct. The shadow is set on the layer's `shadowPath` (the petal
+    /// outline) so it stays cheap and crisp.
     private static func makePetalLayer(
         path: CGPath, length: CGFloat, width: CGFloat,
         color: NSColor, rotation: CGFloat
@@ -533,6 +539,13 @@ enum SplashWindowController {
         petal.anchorPoint = CGPoint(x: 0.5, y: 0) // the base, path point (0,0)
         petal.position = .zero
         petal.transform = CATransform3DMakeRotation(rotation, 0, 0, 1)
+
+        // Subtle per-petal separation shadow: soft, small, barely offset.
+        petal.shadowColor = NSColor.black.cgColor
+        petal.shadowOpacity = 0.22
+        petal.shadowRadius = 2.5
+        petal.shadowOffset = CGSize(width: 0, height: -1.5)
+        petal.shadowPath = path
         return petal
     }
 
