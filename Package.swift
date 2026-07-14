@@ -3,14 +3,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "PaperReader",
+    name: "Petal",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         // The reusable core (models + database layer). Views and services in later
         // sessions can depend on this without pulling in the @main app entry point.
-        .library(name: "PaperReaderCore", targets: ["PaperReaderCore"])
+        .library(name: "PetalCore", targets: ["PetalCore"])
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift", from: "7.0.0"),
@@ -20,26 +20,26 @@ let package = Package(
         // Models/ + Database/ live here. Kept separate from the app target so the
         // test bundle can link the DB layer without linking a second `main`.
         .target(
-            name: "PaperReaderCore",
+            name: "PetalCore",
             dependencies: [
                 .product(name: "GRDB", package: "GRDB.swift")
             ],
-            path: "PaperReader",
+            path: "Petal",
             sources: ["Models", "Database", "Services"]
         ),
         .executableTarget(
-            name: "PaperReaderApp",
+            name: "PetalApp",
             dependencies: [
-                "PaperReaderCore",
+                "PetalCore",
                 .product(name: "SwiftMath", package: "SwiftMath")
             ],
-            path: "PaperReader",
+            path: "Petal",
             sources: ["App", "Views/Home", "Views/Reader", "Views/Notes", "Views/ClaudePanel", "Views/Settings"]
         ),
         .testTarget(
-            name: "PaperReaderCoreTests",
-            dependencies: ["PaperReaderCore"],
-            path: "Tests/PaperReaderCoreTests"
+            name: "PetalCoreTests",
+            dependencies: ["PetalCore"],
+            path: "Tests/PetalCoreTests"
         )
     ]
 )

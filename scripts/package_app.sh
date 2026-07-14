@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # package_app.sh
 #
-# Builds PaperReader in release mode and assembles a standalone,
-# ad-hoc-signed, double-clickable PaperReader.app bundle under dist/.
+# Builds Petal in release mode and assembles a standalone,
+# ad-hoc-signed, double-clickable Petal.app bundle under dist/.
 # No notarization or distribution signing is performed — this is strictly
 # for local/personal use.
 #
@@ -18,18 +18,18 @@ cd "$ROOT_DIR"
 PACKAGING_DIR="$ROOT_DIR/packaging"
 BUILD_TMP_DIR="$ROOT_DIR/build/packaging"
 DIST_DIR="$ROOT_DIR/dist"
-APP_BUNDLE="$DIST_DIR/PaperReader.app"
+APP_BUNDLE="$DIST_DIR/Petal.app"
 
 BASE_ICON_PNG="$PACKAGING_DIR/AppIcon-1024.png"
 ICONSET_DIR="$BUILD_TMP_DIR/AppIcon.iconset"
 ICNS_PATH="$BUILD_TMP_DIR/AppIcon.icns"
 
-RELEASE_BINARY="$ROOT_DIR/.build/release/PaperReaderApp"
+RELEASE_BINARY="$ROOT_DIR/.build/release/PetalApp"
 
 mkdir -p "$PACKAGING_DIR" "$BUILD_TMP_DIR" "$DIST_DIR"
 
 # --- 1. Build the release binary ---------------------------------------
-echo "==> Building PaperReaderApp (release)..."
+echo "==> Building PetalApp (release)..."
 swift build -c release
 
 if [[ ! -f "$RELEASE_BINARY" ]]; then
@@ -144,14 +144,14 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-cp "$RELEASE_BINARY" "$MACOS_DIR/PaperReader"
-chmod +x "$MACOS_DIR/PaperReader"
+cp "$RELEASE_BINARY" "$MACOS_DIR/PetalApp"
+chmod +x "$MACOS_DIR/PetalApp"
 
 cp "$ICNS_PATH" "$RESOURCES_DIR/AppIcon.icns"
 
 # Sharp full-resolution launch-splash icon (avoids the downscaled/cached
 # NSApp.applicationIconImage representation — see SplashWindow.swift).
-cp "$ROOT_DIR/EasyReader_icon.png" "$RESOURCES_DIR/EasyReader_icon.png"
+cp "$ROOT_DIR/Petal_icon.png" "$RESOURCES_DIR/Petal_icon.png"
 
 cat > "$CONTENTS_DIR/Info.plist" <<PLIST_EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -159,13 +159,13 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST_EOF
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Paper Reader</string>
+    <string>Petal</string>
     <key>CFBundleDisplayName</key>
-    <string>Paper Reader</string>
+    <string>Petal</string>
     <key>CFBundleIdentifier</key>
-    <string>com.alexanderrecce.paperreader</string>
+    <string>com.alexanderrecce.petal</string>
     <key>CFBundleExecutable</key>
-    <string>PaperReader</string>
+    <string>PetalApp</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>
@@ -197,4 +197,4 @@ codesign --verify --verbose "$APP_BUNDLE"
 
 # --- 6. Done ----------------------------------------------------------------
 echo "$APP_BUNDLE"
-echo "done: PaperReader.app built, icon generated/reused, ad-hoc signed, and verified."
+echo "done: Petal.app built, icon generated/reused, ad-hoc signed, and verified."

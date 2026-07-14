@@ -1,10 +1,10 @@
-# PaperReader Working Conventions
+# Petal Working Conventions
 
 - Treat `CURRENT_STATE.md` and the code as current. `paper_reader_spec.md` and `session_*_prompt.md` are historical records only; do not attach them as working context.
 - Keep changes compatible with Swift 6 and macOS 14+ (`Package.swift`).
 - Use UUID strings for entity primary keys (`UUID().uuidString`), never autoincrement integers. `paper_tag` is the deliberate composite-key exception.
 - Make schema changes with a new additive `V<n>...` migration. Never edit a shipped migration; register the new migration after the prior versions in `DatabaseManager.migrator`.
-- Keep the SPM boundary intact: models, database code, repositories, and non-UI services belong in `PaperReaderCore`; app lifecycle and SwiftUI/AppKit presentation belong in `PaperReaderApp`. Tests link Core and must not require the `@main` executable.
+- Keep the SPM boundary intact: models, database code, repositories, and non-UI services belong in `PetalCore`; app lifecycle and SwiftUI/AppKit presentation belong in `PetalApp`. Tests link Core and must not require the `@main` executable.
 - Keep database access out of view bodies. Put domain persistence in the existing repository/service layer and perform related operations in one `dbQueue.write` transaction.
 - Any mutation of search-backed papers, notes, or comments must update/remove its `search_index` row in the same write transaction. FTS has no triggers or foreign keys, so cascade deletion alone is insufficient.
 - Preserve snake_case database columns through each model's `CodingKeys`; keep storage encodings compatible (JSON for bounding boxes, linked highlight IDs, and chat messages; RTF `Data` for note rich text).

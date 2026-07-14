@@ -2,7 +2,7 @@
 
 ## 1. Copy the app to Applications
 
-1. Open `PaperReader.dmg`.
+1. Open `Petal.dmg`.
 2. Drag **Paper Reader** onto the **Applications** folder shortcut beside it.
 
 ## 2. Open the app for the first time

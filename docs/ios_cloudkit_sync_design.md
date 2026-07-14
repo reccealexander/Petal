@@ -1,4 +1,4 @@
-# PaperReader — iOS/iPadOS App + CloudKit Sync: Architecture & Migration Design
+# Petal — iOS/iPadOS App + CloudKit Sync: Architecture & Migration Design
 
 **Status:** Design spec (Session 34). No code, migration, or iOS target is created by this
 document — it is the plan Session 35 onward implement from.
@@ -17,7 +17,7 @@ worth refreshing in a later session, out of scope here.)
 |---|---|
 | Local store on each device | **GRDB/SQLite stays** the source of truth. CloudKit is a sync transport, not the store. |
 | Sync mechanism | **Custom `CloudSyncService` in Core** mirroring rows ↔ `CKRecord`s. Not Core Data / `NSPersistentCloudKitContainer`. |
-| CloudKit database | **Private database**, one **custom record zone** (`PaperReaderZone`) for delta sync + atomic saves. |
+| CloudKit database | **Private database**, one **custom record zone** (`PetalZone`) for delta sync + atomic saves. |
 | Record identity | UUID string PKs become `CKRecord.recordName` **verbatim** — no ID remapping. |
 | PDFs | **`CKAsset`** on a dedicated `pdfAsset` record, downloaded **lazily** on mobile. |
 | Sync bookkeeping | New additive **V11** migration: a `sync_state` sidecar table (no changes to existing tables). |
@@ -47,10 +47,10 @@ preserves the entire existing stack and keeps Core testable.
 
 - **Private database** (`CKContainer.default().privateCloudDatabase`) — data is the user's,
   scoped to their iCloud account, invisible to Apple and other users.
-- **One custom record zone**, `PaperReaderZone`. A custom zone (not the default zone) is
+- **One custom record zone**, `PetalZone`. A custom zone (not the default zone) is
   required to use `CKFetchRecordZoneChangesOperation` with a **server change token** (delta
   sync) and to get **atomic** multi-record saves within the zone.
-- `CloudSyncService` lives in **`PaperReaderCore/Services`** so both apps share one
+- `CloudSyncService` lives in **`PetalCore/Services`** so both apps share one
   implementation. CloudKit (`import CloudKit`) is available on macOS and iOS alike.
 
 ### The seam that keeps it testable
@@ -60,7 +60,7 @@ like `save(records:)`, `fetchChanges(since:)`, `delete(recordIDs:)`. `CloudSyncS
 depends on the protocol; the real implementation wraps `CKModifyRecordsOperation` /
 `CKFetchRecordZoneChangesOperation`; a **fake** backend drives unit tests with no live
 CloudKit. All sync *logic* (dirty selection, conflict resolution, apply-ordering, FTS
-rebuild) is thus testable in `PaperReaderCoreTests`.
+rebuild) is thus testable in `PetalCoreTests`.
 
 ---
 
@@ -68,7 +68,7 @@ rebuild) is thus testable in `PaperReaderCoreTests`.
 
 One `CKRecord` **recordType** per synced table. `recordName` = the row's UUID PK, so a
 record's identity is stable across devices with zero coordination. All records are created
-in `PaperReaderZone`.
+in `PetalZone`.
 
 **Synced tables:** `paper`, `notebook`, `highlight`, `comment`, `note`, `tag`, `paper_tag`,
 `page_bookmark`, `chat_session`.
@@ -263,7 +263,7 @@ cascade cleanup for e.g. paper chat rows — extend that to emit child tombstone
 
 ---
 
-## 7. Core portability (make `PaperReaderCore` build for iOS)
+## 7. Core portability (make `PetalCore` build for iOS)
 
 The library is already iOS-clean except for image encoding. Required changes (designed here,
 applied in Session 37):
@@ -278,7 +278,7 @@ applied in Session 37):
    except that one file). PDFKit, CryptoKit, and Security/Keychain are all available on iOS —
    `KeychainService` works as-is (verify the `kSecClass`/access-group attributes are iOS-valid).
 3. **`Package.swift`** — add `.iOS(.v16)` (or `.v17`) alongside `.macOS(.v14)` to the platforms,
-   and confirm `PaperReaderCore` builds for the iOS SDK. (Design only; do not edit this session.)
+   and confirm `PetalCore` builds for the iOS SDK. (Design only; do not edit this session.)
 4. **SwiftMath** (used only by the macOS app target for equation rendering) stays an *app-target*
    dependency, not Core — no portability impact.
 
@@ -316,7 +316,7 @@ downloading-PDF, offline) as a small shared component.
    after `V10AddNotebookSummaryPaperSet`). It creates `sync_state`/`sync_cursor` and backfills every
    existing row `dirty = 1`.
 2. **Bootstrap upload:** on first launch with sync enabled and an iCloud account, the Mac creates
-   `PaperReaderZone`, then pushes all dirty rows + `pdfAsset`s. Large libraries upload in batches;
+   `PetalZone`, then pushes all dirty rows + `pdfAsset`s. Large libraries upload in batches;
    surface progress. This makes the **existing Mac library the CloudKit seed.**
 3. **Fresh device (iPad/iPhone or a second Mac):** creates an empty DB at V11, finds the zone,
    pulls everything (metadata eager, PDFs lazy §3), rebuilds FTS locally.
@@ -374,7 +374,7 @@ throughout (35, 36, 41) via the fake backend, so most sync logic is proven witho
 ## Appendix A — Repository & target layout
 
 Keep **one repository**; add the iOS app as a **new target**, not a new repo. The whole design
-depends on `PaperReaderCore` being shared *verbatim* between the apps (same models, sync schema,
+depends on `PetalCore` being shared *verbatim* between the apps (same models, sync schema,
 conflict rules); a monorepo makes a sync-schema change a single atomic commit touching both apps,
 whereas splitting Core into its own versioned package repo would force a tag-and-bump dance on
 exactly the code that changes most during this work — and let the two ends' sync logic drift.
@@ -382,11 +382,11 @@ exactly the code that changes most during this work — and let the two ends' sy
 Target arrangement (SPM, and/or an Xcode workspace over the package):
 
 ```
-PaperReaderCore     (library)     Models + Database + Services   — macOS + iOS
-PaperReaderApp      (macOS exe)   App + Views (AppKit/SwiftUI)
-PaperReaderMobile   (iOS app)     iOS App + Views (UIKit/SwiftUI)   ← new
-PaperReaderCoreTests(test)        links Core only
+PetalCore     (library)     Models + Database + Services   — macOS + iOS
+PetalApp      (macOS exe)   App + Views (AppKit/SwiftUI)
+PetalMobile   (iOS app)     iOS App + Views (UIKit/SwiftUI)   ← new
+PetalCoreTests(test)        links Core only
 ```
 
-`PaperReaderMobile` depends on `PaperReaderCore`; `SwiftMath` stays an app-target dependency.
+`PetalMobile` depends on `PetalCore`; `SwiftMath` stays an app-target dependency.
 No repo split, no submodule, no cross-repo version pinning.

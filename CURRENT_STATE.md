@@ -1,4 +1,4 @@
-# PaperReader — Current State
+# Petal — Current State
 
 > **Working-context warning:** `paper_reader_spec.md` and every individual `session_*_prompt.md` file are **historical record only**. Do **not** attach them as working context for new sessions. Use this file and `CLAUDE.md` as their current replacements; the code remains the source of truth.
 
@@ -19,12 +19,12 @@ SQLite/GRDB schema after migrations V1–V9. `?` means nullable; defaults do not
 | `page_bookmark` | **V6:** `id TEXT PK`; `paper_id TEXT? FK paper(id) ON DELETE CASCADE`; `page INTEGER NOT NULL` (zero-based). The model treats `paper_id` as non-optional, but the migration does not declare `NOT NULL`; there is no `(paper_id, page)` uniqueness constraint. |
 | `search_index` | FTS5 virtual table: untyped `entity_id`, `entity_type` (`paper`, `note`, `comment`), `paper_id`, `content`. Maintained explicitly by repositories/import/deletion paths, not by triggers or foreign keys. |
 
-Migration registration order is fixed in `PaperReader/Database/DatabaseManager.swift`: `V1InitialSchema` → `V2AddFileHash` → `V3AddNotebookSummary` → `V4AddFreeSpacePosition` → `V5AddPinnedAt` → `V6AddPageBookmark` → `V7AddReadingProgress` → `V8AddFurthestPageRead` → `V9AddNoteRTF`.
+Migration registration order is fixed in `Petal/Database/DatabaseManager.swift`: `V1InitialSchema` → `V2AddFileHash` → `V3AddNotebookSummary` → `V4AddFreeSpacePosition` → `V5AddPinnedAt` → `V6AddPageBookmark` → `V7AddReadingProgress` → `V8AddFurthestPageRead` → `V9AddNoteRTF`.
 
 ## Project structure
 
 ```text
-PaperReader/
+Petal/
 ├── App/                         app entry/state, appearance, focus, window joining
 ├── Database/                   DatabaseManager + Migrations/V1...V9
 ├── Models/                     GRDB records/value types
@@ -36,15 +36,15 @@ PaperReader/
     ├── Notes/                  library, detached editor, RTF/autosave
     ├── Reader/                 PDFKit reader, annotations, compare/join helpers
     └── Settings/               API keys, appearance, quick tips
-Tests/PaperReaderCoreTests/     Core repository/service tests
+Tests/PetalCoreTests/     Core repository/service tests
 scripts/                        app packaging and DMG scripts
 packaging/                      packaging assets
 Package.swift                   Swift 6 package, macOS 14+
 ```
 
-- `PaperReaderCore` (library): `Models`, `Database`, `Services`; depends on GRDB; tests link this target.
-- `PaperReaderApp` (executable): `App` and all `Views`; depends on `PaperReaderCore`.
-- The repository currently contains 83 Swift files under `PaperReader/` and 10 test Swift files.
+- `PetalCore` (library): `Models`, `Database`, `Services`; depends on GRDB; tests link this target.
+- `PetalApp` (executable): `App` and all `Views`; depends on `PetalCore`.
+- The repository currently contains 83 Swift files under `Petal/` and 10 test Swift files.
 
 ## Feature inventory
 
@@ -74,10 +74,10 @@ Package.swift                   Swift 6 package, macOS 14+
 
 ### Window management
 
-- Separate main, reader, notes, chat, compare, joined, and Settings scenes — `App/PaperReaderApp.swift`.
+- Separate main, reader, notes, chat, compare, joined, and Settings scenes — `App/PetalApp.swift`.
 - Explicit two-paper compare plus split-out; reader panes scroll/zoom independently — `Views/Reader/CompareReaderView.swift`.
 - Best-effort edge snap joins any registered main/reader/notes pair into an `HSplitView`, with split-out — `Views/Reader/CompareCoordinator.swift`, `App/WindowJoining.swift`.
-- Focus Mode hides other apps and PaperReader windows, strips reader chrome, and exposes a floating reader toolbar — `App/FocusModeController.swift`, `Views/Reader/PDFReaderView.swift`.
+- Focus Mode hides other apps and Petal windows, strips reader chrome, and exposes a floating reader toolbar — `App/FocusModeController.swift`, `Views/Reader/PDFReaderView.swift`.
 - Per-paper reader window size/shape memory: each standalone reader window gets a unique AppKit frame autosave name (`PetalReader-<paperId>`), so resizing and closing a paper restores that window's exact frame on reopen; papers never resized keep the SwiftUI default (no migration, no `paper`-row writes) — `Views/Reader/PDFReaderView.swift` (`restoreWindowFrame`).
 
 ### Claude/Gemini AI
@@ -98,7 +98,7 @@ Package.swift                   Swift 6 package, macOS 14+
 ## Known quirks and non-obvious decisions
 
 - Opening an `unread` paper changes it to `in_progress`. Reaching the final page for the first time in that reader coordinator auto-writes `read` when `furthest_page_read` reaches `page_count`. A later manual status write remains in force; a manual choice made before that first 100% crossing can still be auto-promoted (`PDFReaderView`, `PDFKitWrapper`, `NotebookRepository.setReadingStatus`).
-- Focus Mode uses `NSRunningApplication.hide()`/`unhide()` for other regular apps and `orderOut`/`orderBack` for other PaperReader windows—no Accessibility API. Exit activates PaperReader and re-fronts the focused reader (`FocusModeController`).
+- Focus Mode uses `NSRunningApplication.hide()`/`unhide()` for other regular apps and `orderOut`/`orderBack` for other Petal windows—no Accessibility API. Exit activates Petal and re-fronts the focused reader (`FocusModeController`).
 - Shift-click selects **exactly two** papers: the last plain-click anchor and the clicked paper. It is intentionally not range selection; a second plain click on the sole selected paper opens it (`PaperSelectionController`).
 - Chat context is opt-in UI state via `includeContext`, default `true`; typed sends honor the toggle, while quick actions always request context (`ClaudePanelViewModel`, `ClaudePanelView`). Context is rebuilt for every send.
 - The detached editor treats `note.body_rtf` as canonical, derives `note.body` from `NSAttributedString.string`, and indexes the plain text. The inline Notes Library editor is an exception: `NoteEditorViewModel.saveNow` updates only `body`/`title`, leaving any existing `body_rtf` unchanged, so the two representations can diverge (`NotesViewModel`, `NotesLibraryView`, `SearchIndex.indexNote`).
