@@ -554,12 +554,20 @@ enum SplashWindowController {
 
         CATransaction.commit()
 
-        // Safety net: if the transaction completion (and the landing
-        // transition it triggers) is ever short-circuited, still reveal the
-        // main window. `fireResearchNow`'s guard makes double-firing
-        // impossible; the deadline sits comfortably past the whole bloom +
-        // 0.25s hold + landing transition.
-        DispatchQueue.main.asyncAfter(deadline: .now() + bloomEnd + 3.4) {
+        // Hand off to the landing transition DETERMINISTICALLY off the wall
+        // clock as the primary trigger, rather than relying solely on the
+        // CATransaction completion block above — that block can be delayed or
+        // dropped at launch, which left the finished flower stalling until the
+        // old net revealed the window with no transition at all. Both triggers
+        // are safe because `beginLandingTransition` is idempotent
+        // (`landingStarted`); whichever fires first wins.
+        DispatchQueue.main.asyncAfter(deadline: .now() + bloomEnd + 0.25) {
+            MainActor.assumeIsolated { beginLandingTransition() }
+        }
+        // Absolute last-resort net: if the landing transition can neither run
+        // nor take its own immediate-reveal fallback, still reveal the main
+        // window. `fireResearchNow` is fire-once, so this can never double-reveal.
+        DispatchQueue.main.asyncAfter(deadline: .now() + bloomEnd + 5.0) {
             MainActor.assumeIsolated { fireResearchNow() }
         }
     }
@@ -707,12 +715,20 @@ enum SplashWindowController {
         settle.isRemovedOnCompletion = false
         windowFill.add(settle, forKey: "settle")
 
-        // Handoff: reveal the real main window (behind the floating overlay),
-        // then crossfade the overlay out to expose the live UI, then close it.
+        // Reveal the real main window EARLY — while the opaque fill still fully
+        // covers its rect — so the cost of its first display
+        // (`makeKeyAndOrderFront` + SwiftUI first layout) is absorbed UNDER the
+        // fill instead of stalling the visible crossfade. The window comes up
+        // behind the floating overlay, so it isn't seen until the overlay fades.
+        // `fireResearchNow` is fire-once.
+        DispatchQueue.main.asyncAfter(deadline: .now() + settleBegin) {
+            MainActor.assumeIsolated { fireResearchNow() }
+        }
+        // Handoff: once the fill has settled, crossfade the overlay out to
+        // expose the already-revealed live UI, then close it.
         let handoffDelay = settleBegin + settleDuration
         DispatchQueue.main.asyncAfter(deadline: .now() + handoffDelay) {
             MainActor.assumeIsolated {
-                fireResearchNow()
                 NSAnimationContext.runAnimationGroup { context in
                     context.duration = 0.4
                     overlay.animator().alphaValue = 0
