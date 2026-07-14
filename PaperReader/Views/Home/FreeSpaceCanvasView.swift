@@ -19,73 +19,106 @@ struct FreeSpaceCanvasView: View {
     private let cardHalfSize = CGSize(width: 88, height: 125)
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .topLeading) {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .onTapGesture(perform: onDeselect)
-
-                if graphMode {
-                    Canvas { context, _ in
-                        for edge in sharedTagEdges(in: geo.size) {
-                            var path = Path()
-                            path.move(to: edge.start)
-                            path.addLine(to: edge.end)
-                            context.stroke(
-                                path,
-                                with: .color(.secondary.opacity(0.28)),
-                                lineWidth: 1
-                            )
+        let subfolders = library.selectedNotebookId.map { library.childNotebooks(of: $0) } ?? []
+        VStack(spacing: 0) {
+            if !subfolders.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 20) {
+                        ForEach(subfolders) { subfolder in
+                            folderCard(subfolder)
                         }
                     }
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .allowsHitTesting(false)
+                    .padding(20)
                 }
+                .scrollIndicators(.hidden)
+            }
 
-                ForEach(Array(library.papers.enumerated()), id: \.element.id) { index, paper in
-                    let position = position(for: paper, index: index, in: geo.size)
-                    PaperInteractionShell(
+            GeometryReader { geo in
+                paperCanvas(in: geo)
+            }
+        }
+    }
+
+    private func paperCanvas(in geo: GeometryProxy) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onDeselect)
+
+            if graphMode {
+                Canvas { context, _ in
+                    for edge in sharedTagEdges(in: geo.size) {
+                        var path = Path()
+                        path.move(to: edge.start)
+                        path.addLine(to: edge.end)
+                        context.stroke(
+                            path,
+                            with: .color(.secondary.opacity(0.28)),
+                            lineWidth: 1
+                        )
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+                .allowsHitTesting(false)
+            }
+
+            ForEach(Array(library.papers.enumerated()), id: \.element.id) { index, paper in
+                let position = position(for: paper, index: index, in: geo.size)
+                PaperInteractionShell(
+                    paper: paper,
+                    library: library,
+                    selection: selection,
+                    orderedIDs: library.papers.map(\.id),
+                    onOpen: onOpen,
+                    onRequestDelete: onRequestDelete
+                ) { isSelected in
+                    FreeSpacePaperCard(
                         paper: paper,
-                        library: library,
-                        selection: selection,
-                        orderedIDs: library.papers.map(\.id),
-                        onOpen: onOpen,
-                        onRequestDelete: onRequestDelete
-                    ) { isSelected in
-                        FreeSpacePaperCard(
-                            paper: paper,
-                            papersDirectory: papersDirectory,
-                            hasNotes: library.papersWithNotes.contains(paper.id),
-                            isSelected: isSelected,
-                            basePosition: position
-                        ) { newPosition in
-                            guard hasUsableSize(geo.size) else { return }
-                            let constrained = clamped(newPosition, to: geo.size)
-                            livePositions[paper.id] = constrained
-                            library.setPaperPosition(
-                                paperId: paper.id,
-                                x: constrained.x,
-                                y: constrained.y
-                            )
-                        }
+                        papersDirectory: papersDirectory,
+                        hasNotes: library.papersWithNotes.contains(paper.id),
+                        isSelected: isSelected,
+                        basePosition: position
+                    ) { newPosition in
+                        guard hasUsableSize(geo.size) else { return }
+                        let constrained = clamped(newPosition, to: geo.size)
+                        livePositions[paper.id] = constrained
+                        library.setPaperPosition(
+                            paperId: paper.id,
+                            x: constrained.x,
+                            y: constrained.y
+                        )
                     }
-                    .position(position)
                 }
+                .position(position)
+            }
 
-                graphToggle
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .topTrailing)
-                    .zIndex(1)
-            }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .clipped()
-            .onAppear { persistConstrainedPositions(in: geo.size) }
-            .onChange(of: geo.size) { _, size in
-                persistConstrainedPositions(in: size)
-            }
-            .onChange(of: library.papers) { _, _ in
-                persistConstrainedPositions(in: geo.size)
-            }
+            graphToggle
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .topTrailing)
+                .zIndex(1)
+        }
+        .frame(width: geo.size.width, height: geo.size.height)
+        .clipped()
+        .onAppear { persistConstrainedPositions(in: geo.size) }
+        .onChange(of: geo.size) { _, size in
+            persistConstrainedPositions(in: size)
+        }
+        .onChange(of: library.papers) { _, _ in
+            persistConstrainedPositions(in: geo.size)
+        }
+    }
+
+    private func folderCard(_ notebook: Notebook) -> some View {
+        let preview = library.folderPreview(notebookId: notebook.id)
+        return AllFolderCard(
+            notebook: notebook,
+            representativePaper: preview.representative,
+            paperCount: preview.count,
+            papersDirectory: papersDirectory
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            library.selection = .notebook(notebook.id)
         }
     }
 

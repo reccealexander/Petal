@@ -232,6 +232,7 @@ struct PaperPagedLibraryView: View {
             PaperListView(
                 library: library,
                 selection: selection,
+                papersDirectory: papersDirectory,
                 onOpen: onOpen,
                 onRequestDelete: onRequestDelete,
                 onDeselect: selection.deselectAll

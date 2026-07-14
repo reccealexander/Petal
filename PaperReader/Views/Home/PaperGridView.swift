@@ -40,6 +40,11 @@ struct PaperGridView: View {
 
     private var flatGrid: some View {
         LazyVGrid(columns: columns, spacing: 20) {
+            let subfolders = library.selectedNotebookId.map { library.childNotebooks(of: $0) } ?? []
+            ForEach(subfolders) { subfolder in
+                folderCard(subfolder)
+            }
+
             ForEach(library.papers) { paper in
                 paperCard(paper)
             }
@@ -49,6 +54,16 @@ struct PaperGridView: View {
 
     private var groupedGrid: some View {
         LazyVStack(alignment: .leading, spacing: 20) {
+            let subfolders = library.selectedNotebookId.map { library.childNotebooks(of: $0) } ?? []
+            if !subfolders.isEmpty {
+                LazyVGrid(columns: columns, spacing: 20) {
+                    ForEach(subfolders) { subfolder in
+                        folderCard(subfolder)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+
             ForEach(library.groupedPapers(), id: \.title) { group in
                 VStack(alignment: .leading, spacing: 10) {
                     Text(group.title)
@@ -65,6 +80,20 @@ struct PaperGridView: View {
             }
         }
         .padding(.vertical, 20)
+    }
+
+    private func folderCard(_ notebook: Notebook) -> some View {
+        let preview = library.folderPreview(notebookId: notebook.id)
+        return AllFolderCard(
+            notebook: notebook,
+            representativePaper: preview.representative,
+            paperCount: preview.count,
+            papersDirectory: papersDirectory
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            library.selection = .notebook(notebook.id)
+        }
     }
 
     private func paperCard(_ paper: Paper) -> some View {

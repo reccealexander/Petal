@@ -4,6 +4,7 @@ import PaperReaderCore
 struct PaperListView: View {
     @ObservedObject var library: LibraryViewModel
     @ObservedObject var selection: PaperSelectionController
+    let papersDirectory: URL
     let onOpen: (String) -> Void
     let onRequestDelete: (Set<String>) -> Void
     let onDeselect: () -> Void
@@ -17,6 +18,24 @@ struct PaperListView: View {
                         .onTapGesture(perform: onDeselect)
 
                     LazyVStack(alignment: .leading, spacing: 8) {
+                        let subfolders = library.selectedNotebookId.map { library.childNotebooks(of: $0) } ?? []
+                        if !subfolders.isEmpty {
+                            Text("Folders")
+                                .font(.headline)
+                                .padding(.horizontal, 20)
+
+                            LazyVGrid(
+                                columns: [GridItem(.adaptive(minimum: 190), spacing: 20)],
+                                spacing: 20
+                            ) {
+                                ForEach(subfolders) { subfolder in
+                                    folderCard(subfolder)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 12)
+                        }
+
                         if library.grouping == .flat {
                             ForEach(library.papers) { paper in
                                 row(paper, orderedIDs: library.papers.map(\.id))
@@ -38,6 +57,20 @@ struct PaperListView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .topLeading)
             }
+        }
+    }
+
+    private func folderCard(_ notebook: Notebook) -> some View {
+        let preview = library.folderPreview(notebookId: notebook.id)
+        return AllFolderCard(
+            notebook: notebook,
+            representativePaper: preview.representative,
+            paperCount: preview.count,
+            papersDirectory: papersDirectory
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            library.selection = .notebook(notebook.id)
         }
     }
 

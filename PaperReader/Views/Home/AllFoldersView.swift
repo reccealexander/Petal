@@ -41,7 +41,7 @@ struct AllFoldersView: View {
     }
 }
 
-private struct AllFolderCard: View {
+struct AllFolderCard: View {
     let notebook: Notebook
     let representativePaper: Paper?
     let paperCount: Int

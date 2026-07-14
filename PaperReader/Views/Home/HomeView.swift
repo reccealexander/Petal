@@ -427,7 +427,9 @@ private struct LibraryContentView: View {
     @ViewBuilder
     private var paperLibraryPages: some View {
         if let papersDir = appState.database?.papersDirectory {
-            if library.papers.isEmpty {
+            let hasSubfolders = library.selectedNotebookId
+                .map { !library.childNotebooks(of: $0).isEmpty } ?? false
+            if library.papers.isEmpty && !hasSubfolders {
                 emptyStateView
             } else {
                 PaperPagedLibraryView(

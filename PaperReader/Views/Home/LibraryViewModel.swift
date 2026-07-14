@@ -71,6 +71,11 @@ final class LibraryViewModel: ObservableObject {
     /// Whether `searchText` has any non-whitespace content.
     var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
+    var selectedNotebookId: String? {
+        if case .notebook(let id) = selection { return id }
+        return nil
+    }
+
     let database: DatabaseManager
     private let notebookRepo: NotebookRepository
     private let tagRepo: TagRepository
@@ -142,7 +147,8 @@ final class LibraryViewModel: ObservableObject {
         case .unfiled:
             base = (try? notebookRepo.unfiledPapers()) ?? []
         case .notebook(let id):
-            base = (try? notebookRepo.papersUnder(notebookId: id)) ?? []
+            base = ((try? notebookRepo.papersUnder(notebookId: id)) ?? [])
+                .filter { $0.notebookId == id }
         }
 
         var filtered = base
@@ -274,6 +280,15 @@ final class LibraryViewModel: ObservableObject {
     /// Papers inside a notebook subtree, sorted pinned-first like the visible paper lists.
     func papersUnder(notebookId: String) -> [Paper] {
         pinnedFirst((try? notebookRepo.papersUnder(notebookId: notebookId)) ?? [])
+    }
+
+    /// A notebook subtree's representative paper and total paper count, from one fetch.
+    func folderPreview(notebookId: String) -> (representative: Paper?, count: Int) {
+        let papers = papersUnder(notebookId: notebookId)
+        return (
+            papers.first(where: { $0.pinnedAt != nil }) ?? papers.first,
+            papers.count
+        )
     }
 
     // MARK: - Tags
