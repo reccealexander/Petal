@@ -216,6 +216,26 @@ public final class NotebookRepository {
         }
     }
 
+    /// The most-recently-opened papers, ordered by `last_opened_at` descending.
+    /// Only papers that have actually been opened (non-null `last_opened_at`)
+    /// are included, capped at `limit`. `last_opened_at` is stamped by the
+    /// reader on open, so this list re-orders naturally as papers are read.
+    public func recentlyViewedPapers(limit: Int = 10) throws -> [Paper] {
+        guard limit > 0 else { return [] }
+        return try dbQueue.read { db in
+            try Paper.fetchAll(
+                db,
+                sql: """
+                SELECT * FROM paper
+                WHERE last_opened_at IS NOT NULL
+                ORDER BY last_opened_at DESC
+                LIMIT ?
+                """,
+                arguments: [limit]
+            )
+        }
+    }
+
     /// Papers not in any notebook (notebook_id IS NULL).
     public func unfiledPapers() throws -> [Paper] {
         try dbQueue.read { db in

@@ -85,6 +85,32 @@ final class NotebookRepositoryTests: XCTestCase {
         XCTAssertNil(unwrapped.notebookId)
     }
 
+    func testRecentlyViewedPapersOrdersByLastOpenedDescAndCaps() throws {
+        // Never-opened papers are excluded.
+        _ = try insertPaper(notebookId: nil)
+
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        var opened: [(id: String, date: Date)] = []
+        for offset in 0..<12 {
+            let date = base.addingTimeInterval(Double(offset) * 60)
+            let paper = Paper(filePath: "\(UUID().uuidString).pdf", lastOpenedAt: date)
+            try manager.dbQueue.write { try paper.insert($0) }
+            opened.append((paper.id, date))
+        }
+
+        let recent = try repo.recentlyViewedPapers(limit: 10)
+
+        // Capped at 10, most-recent first, and only opened papers included.
+        XCTAssertEqual(recent.count, 10)
+        let expected = opened.sorted { $0.date > $1.date }.prefix(10).map(\.id)
+        XCTAssertEqual(recent.map(\.id), Array(expected))
+    }
+
+    func testRecentlyViewedPapersEmptyWhenNoneOpened() throws {
+        _ = try insertPaper(notebookId: nil)
+        XCTAssertTrue(try repo.recentlyViewedPapers().isEmpty)
+    }
+
     func testMovePaperAndContainsPapers() throws {
         let nb = try repo.create(name: "Notebook", parentId: nil)
         let paper = try insertPaper(notebookId: nil)

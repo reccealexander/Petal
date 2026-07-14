@@ -7,6 +7,7 @@ import GRDB
 enum LibrarySelection: Hashable {
     case all
     case unfiled
+    case recentlyViewed
     case notebook(String)   // notebook id
 }
 
@@ -140,12 +141,29 @@ final class LibraryViewModel: ObservableObject {
     /// `activeTagIds` (a paper must carry every selected tag), and rebuilds
     /// `tagsByPaper` for the resulting set.
     func reloadPapers() {
+        // Recently Viewed is a fixed, recency-ordered slice: it deliberately
+        // bypasses the tag/status filters and pinned-first reordering so the
+        // "last 10 opened" order (last_opened_at DESC) is preserved exactly.
+        if case .recentlyViewed = selection {
+            let recent = (try? notebookRepo.recentlyViewedPapers(limit: 10)) ?? []
+            papers = recent
+            var tagsMap: [String: [Tag]] = [:]
+            for paper in recent {
+                tagsMap[paper.id] = (try? tagRepo.tags(forPaper: paper.id)) ?? []
+            }
+            tagsByPaper = tagsMap
+            reloadPapersWithNotes()
+            return
+        }
+
         let base: [Paper]
         switch selection {
         case .all:
             base = (try? notebookRepo.allPapers()) ?? []
         case .unfiled:
             base = (try? notebookRepo.unfiledPapers()) ?? []
+        case .recentlyViewed:
+            base = []   // handled above
         case .notebook(let id):
             base = ((try? notebookRepo.papersUnder(notebookId: id)) ?? [])
                 .filter { $0.notebookId == id }

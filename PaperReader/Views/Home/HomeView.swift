@@ -259,6 +259,7 @@ private struct LibraryContentView: View {
                     return handledDrop
                 }
             unfiledModeRow
+            recentlyViewedModeRow
             mainModeRow(title: "All Folders", icon: "folder", mode: .folders)
             mainModeRow(title: "Notes", icon: "note.text", mode: .notes)
         }
@@ -318,6 +319,31 @@ private struct LibraryContentView: View {
                 )
             }
             return true
+        }
+    }
+
+    /// "Recently Viewed" sidebar row: shows the last 10 opened papers, ordered
+    /// by `last_opened_at` descending. No drop destination — it's a read-only
+    /// recency view, not a place to file papers.
+    private var recentlyViewedModeRow: some View {
+        let isSelected = mode == .papers && library.selection == .recentlyViewed
+
+        return HStack(spacing: 6) {
+            Image(systemName: "clock")
+                .foregroundStyle(.secondary)
+            Text("Recently Viewed")
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.15) : .clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            mode = .papers
+            library.selection = .recentlyViewed
         }
     }
 
@@ -502,11 +528,19 @@ private struct LibraryContentView: View {
     @ViewBuilder
     private var emptyStateView: some View {
         VStack(spacing: 8) {
-            Text("No papers yet")
-                .font(.title2.bold())
-            Text("Click Import PDF to add one.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            if library.selection == .recentlyViewed {
+                Text("No recently viewed papers")
+                    .font(.title2.bold())
+                Text("Papers you open will appear here.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("No papers yet")
+                    .font(.title2.bold())
+                Text("Click Import PDF to add one.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(40)
     }
@@ -597,6 +631,8 @@ private struct LibraryContentView: View {
             return "All Papers"
         case .unfiled:
             return "Unfiled"
+        case .recentlyViewed:
+            return "Recently Viewed"
         case .notebook(let id):
             return library.notebooks.first(where: { $0.id == id })?.name ?? "Notebook"
         }
