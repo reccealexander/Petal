@@ -84,6 +84,14 @@ final class AnnotatablePDFView: PDFView {
     }
 }
 
+/// A transparent, non-interactive overlay that hosts the sweep-animation layers
+/// above the PDF content. Returns nil from hitTest so clicks pass through to the
+/// PDFView (and the "Key Insight" badge) beneath it.
+final class SweepOverlayView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var isFlipped: Bool { false }
+}
+
 /// `NSViewRepresentable` bridge around `PDFKit.PDFView` (spec §3 Phase 1).
 ///
 /// Renders the PDF at `url` as a continuous, auto-scaling, vertically-scrolling
@@ -218,7 +226,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         private var fetchedPages: Set<Int> = []
         private var inFlightPages: Set<Int> = []
         private var autoSuggestTask: Task<Void, Never>?
-        private var sweepAnimationTask: Task<Void, Never>?
+        private var sweepOverlay: SweepOverlayView?
         private var proposalGeneration = 0
         let keyIdeaService = KeyIdeaSuggestionService()
         var popover: NSPopover?
@@ -447,8 +455,6 @@ struct PDFKitWrapper: NSViewRepresentable {
             let sweeps = proposedAnnotations.values
                 .flatMap { $0 }
                 .compactMap { $0 as? SweepHighlightAnnotation }
-            sweepAnimationTask?.cancel()
-            sweepAnimationTask = nil
 
             guard animated, !sweeps.isEmpty else {
                 for sweep in sweeps {
@@ -462,28 +468,84 @@ struct PDFKitWrapper: NSViewRepresentable {
                 sweep.progress = 0
             }
             invalidateSweepDisplay(sweeps)
+            startSweepOverlayAnimation(for: sweeps, page: page, pageIndex: pageIndex)
+        }
+
+        private func startSweepOverlayAnimation(
+            for sweeps: [SweepHighlightAnnotation],
+            page: PDFPage,
+            pageIndex: Int
+        ) {
+            removeSweepOverlay()
+            guard let pdfView else { return }
+
+            let overlay = SweepOverlayView(frame: pdfView.bounds)
+            overlay.autoresizingMask = [.width, .height]
+            overlay.wantsLayer = true
+            pdfView.addSubview(overlay)
+            sweepOverlay = overlay
+
+            let duration = 0.5
+            let color = NSColor.systemOrange.withAlphaComponent(0.28).cgColor
+            var bars: [CALayer] = []
+            for sweep in sweeps {
+                guard sweep.page != nil else { continue }
+                let viewRect = pdfView.convert(sweep.bounds, from: page)
+                let localRect = overlay.convert(viewRect, from: pdfView)
+                guard localRect.width > 0, localRect.height > 0 else { continue }
+
+                let bar = CALayer()
+                bar.backgroundColor = color
+                bar.anchorPoint = CGPoint(x: 0, y: 0.5)
+                bar.bounds = CGRect(
+                    x: 0,
+                    y: 0,
+                    width: localRect.width,
+                    height: localRect.height
+                )
+                bar.position = CGPoint(x: localRect.minX, y: localRect.midY)
+                bar.transform = CATransform3DMakeScale(0.0001, 1, 1)
+                overlay.layer?.addSublayer(bar)
+                bars.append(bar)
+            }
+
+            guard !bars.isEmpty else {
+                removeSweepOverlay()
+                return
+            }
 
             let generation = proposalGeneration
-            let startPage = pageIndex
-            sweepAnimationTask = Task { @MainActor [weak self] in
-                let duration = 0.5
-                let start = Date()
-                while true {
-                    if Task.isCancelled { return }
-                    guard let self,
-                          self.proposalGeneration == generation,
-                          self.model.currentPageIndex == startPage
-                    else { return }
-                    let t = min(1, Date().timeIntervalSince(start) / duration)
-                    let eased = 1 - pow(1 - t, 3)
-                    for sweep in sweeps {
-                        sweep.progress = CGFloat(eased)
+            CATransaction.begin()
+            CATransaction.setCompletionBlock { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if self.proposalGeneration == generation,
+                       self.model.currentPageIndex == pageIndex {
+                        for sweep in sweeps {
+                            sweep.progress = 1
+                        }
+                        self.invalidateSweepDisplay(sweeps)
                     }
-                    self.invalidateSweepDisplay(sweeps)
-                    if t >= 1 { return }
-                    try? await Task.sleep(nanoseconds: 16_000_000)
+                    self.removeSweepOverlay()
                 }
             }
+            for bar in bars {
+                let animation = CABasicAnimation(keyPath: "transform.scale.x")
+                animation.fromValue = 0.0001
+                animation.toValue = 1.0
+                animation.duration = duration
+                animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                animation.fillMode = .forwards
+                animation.isRemovedOnCompletion = false
+                bar.transform = CATransform3DMakeScale(1, 1, 1)
+                bar.add(animation, forKey: "sweep")
+            }
+            CATransaction.commit()
+        }
+
+        private func removeSweepOverlay() {
+            sweepOverlay?.removeFromSuperview()
+            sweepOverlay = nil
         }
 
         private func invalidateSweepDisplay(_ annotations: [SweepHighlightAnnotation]) {
@@ -497,8 +559,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         }
 
         private func removeDrawnProposalAnnotations() {
-            sweepAnimationTask?.cancel()
-            sweepAnimationTask = nil
+            removeSweepOverlay()
             proposedAnnotations.values.forEach(HighlightRenderer.removeAnnotations)
             proposedAnnotations.removeAll()
             proposalLabelToId.removeAll()
@@ -629,8 +690,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         func clearKeyIdeaProposals() {
             autoSuggestTask?.cancel()
             autoSuggestTask = nil
-            sweepAnimationTask?.cancel()
-            sweepAnimationTask = nil
+            removeSweepOverlay()
             proposalGeneration += 1
             proposalsByPage.removeAll()
             fetchedPages.removeAll()
