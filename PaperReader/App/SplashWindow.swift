@@ -1,10 +1,11 @@
 import AppKit
 
 /// Pre-main-window launch splash: a borderless, floating `NSWindow` showing
-/// the app icon plus a single "Research Now" button. The splash stays up
-/// indefinitely — there is no auto-dismiss timer — until the user clicks the
-/// button, at which point the supplied `onResearchNow` closure runs (revealing
-/// the main window) and the caller is responsible for calling `dismiss()`.
+/// the app icon, the animated "Pet.al" wordmark, and a single "Research Now"
+/// button. The splash stays up indefinitely — there is no auto-dismiss timer —
+/// until the user clicks the button, at which point the supplied
+/// `onResearchNow` closure runs (revealing the main window) and the caller is
+/// responsible for calling `dismiss()`.
 ///
 /// This is implemented at the AppKit level (rather than as a SwiftUI
 /// `WindowGroup`/view) because it needs to appear *before* SwiftUI's own
@@ -31,7 +32,41 @@ enum SplashWindowController {
     static func show(onResearchNow: @escaping () -> Void) {
         guard window == nil else { return }
 
-        let windowSize = NSSize(width: 300, height: 340)
+        // --- Title geometry --------------------------------------------------
+        // Render the "Pet.al" wordmark as three independent glyph layers —
+        // "Pet", a static centered ".", and "al" — so the two halves can roll
+        // in from opposite edges and meet at the dot.
+        let font = titleFont(ofSize: 64)
+        let titleColor = NSColor.labelColor
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+
+        let petLayer = makeGlyphLayer("Pet", font: font, color: titleColor, scale: scale)
+        let dotLayer = makeGlyphLayer(".", font: font, color: titleColor, scale: scale)
+        let alLayer = makeGlyphLayer("al", font: font, color: titleColor, scale: scale)
+
+        let petW = petLayer.bounds.width
+        let dotW = dotLayer.bounds.width
+        let alW = alLayer.bounds.width
+        let glyphH = max(petLayer.bounds.height, dotLayer.bounds.height, alLayer.bounds.height)
+
+        // --- Window layout (bottom-up) --------------------------------------
+        let windowWidth: CGFloat = 300
+        let topMargin: CGFloat = 30
+        let iconSide: CGFloat = 170
+        let gapIconTitle: CGFloat = 16
+        let titleHeight = ceil(glyphH) + 4
+        let gapTitleButton: CGFloat = 22
+        let buttonHeight: CGFloat = 34
+        let bottomMargin: CGFloat = 30
+
+        let windowHeight = topMargin + iconSide + gapIconTitle
+            + titleHeight + gapTitleButton + buttonHeight + bottomMargin
+        let windowSize = NSSize(width: windowWidth, height: windowHeight)
+
+        let iconOriginY = windowHeight - topMargin - iconSide
+        let titleOriginY = iconOriginY - gapIconTitle - titleHeight
+        let buttonOriginY = titleOriginY - gapTitleButton - buttonHeight
+
         let splash = NSWindow(
             contentRect: NSRect(origin: .zero, size: windowSize),
             styleMask: [.borderless],
@@ -53,11 +88,7 @@ enum SplashWindowController {
 
         // Icon, clipped to a rounded square so it still reads as the app
         // icon shape, centered near the top of the window.
-        let iconSide: CGFloat = 170
-        let iconOrigin = NSPoint(
-            x: (windowSize.width - iconSide) / 2,
-            y: windowSize.height - 34 - iconSide
-        )
+        let iconOrigin = NSPoint(x: (windowWidth - iconSide) / 2, y: iconOriginY)
         let iconContainer = NSView(frame: NSRect(origin: iconOrigin, size: NSSize(width: iconSide, height: iconSide)))
         iconContainer.wantsLayer = true
         iconContainer.layer?.backgroundColor = NSColor.clear.cgColor
@@ -71,12 +102,36 @@ enum SplashWindowController {
         imageView.autoresizingMask = [.width, .height]
         iconContainer.addSubview(imageView)
 
-        // "Research Now" button, centered below the icon.
-        let buttonSize = NSSize(width: 160, height: 34)
-        let buttonOrigin = NSPoint(
-            x: (windowSize.width - buttonSize.width) / 2,
-            y: iconOrigin.y - 32 - buttonSize.height
-        )
+        // Title container spanning the full window width; the glyph layers are
+        // positioned by their centers within it. A layer-backed, non-flipped
+        // NSView gives us a y-up coordinate system where a positive
+        // `transform.rotation.z` is counter-clockwise.
+        let titleContainer = NSView(frame: NSRect(x: 0, y: titleOriginY, width: windowWidth, height: titleHeight))
+        titleContainer.wantsLayer = true
+        titleContainer.layer?.backgroundColor = NSColor.clear.cgColor
+
+        // Resting (final) center positions. The block "Pet" + "." + "al" is
+        // centered horizontally; all three share the vertical center.
+        let totalW = petW + dotW + alW
+        let leftX = (windowWidth - totalW) / 2
+        let centerY = titleHeight / 2
+        let petRest = CGPoint(x: leftX + petW / 2, y: centerY)
+        let dotRest = CGPoint(x: leftX + petW + dotW / 2, y: centerY)
+        let alRest = CGPoint(x: leftX + petW + dotW + alW / 2, y: centerY)
+
+        // Set the model layers to their final state up front; the roll-in is
+        // added as a temporary animation from off-screen back to these values.
+        petLayer.position = petRest
+        dotLayer.position = dotRest
+        alLayer.position = alRest
+
+        titleContainer.layer?.addSublayer(petLayer)
+        titleContainer.layer?.addSublayer(dotLayer)
+        titleContainer.layer?.addSublayer(alLayer)
+
+        // "Research Now" button, centered below the title.
+        let buttonSize = NSSize(width: 160, height: buttonHeight)
+        let buttonOrigin = NSPoint(x: (windowWidth - buttonSize.width) / 2, y: buttonOriginY)
         let button = NSButton(frame: NSRect(origin: buttonOrigin, size: buttonSize))
         button.title = "Research Now"
         button.bezelStyle = .rounded
@@ -89,6 +144,7 @@ enum SplashWindowController {
         button.keyEquivalent = "\r"
 
         contentView.addSubview(iconContainer)
+        contentView.addSubview(titleContainer)
         contentView.addSubview(button)
         splash.contentView = contentView
 
@@ -98,6 +154,135 @@ enum SplashWindowController {
         splash.makeFirstResponder(button)
 
         window = splash
+
+        // Kick the roll-in animation off now that the window is on screen.
+        animateTitleIn(
+            pet: petLayer, dot: dotLayer, al: alLayer,
+            petRest: petRest, alRest: alRest,
+            titleHeight: titleHeight, windowWidth: windowWidth
+        )
+    }
+
+    /// Animates the two wordmark halves rolling in from opposite window edges
+    /// to meet at the static centered ".". "Pet" enters from the left rolling
+    /// clockwise; "al" enters from the right rolling counter-clockwise. Each
+    /// roll couples a horizontal translation with a rotation whose magnitude is
+    /// the travel distance divided by an effective wheel radius, so the letters
+    /// read as wheels rather than sliding tiles.
+    ///
+    /// Honors Reduce Motion by skipping the roll and gently fading the title in
+    /// at its resting position instead.
+    private static func animateTitleIn(
+        pet: CATextLayer, dot: CATextLayer, al: CATextLayer,
+        petRest: CGPoint, alRest: CGPoint,
+        titleHeight: CGFloat, windowWidth: CGFloat
+    ) {
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+
+        if reduceMotion {
+            // Quick, motion-free fade so the title still "arrives".
+            for layer in [pet, dot, al] {
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = 0
+                fade.toValue = 1
+                fade.duration = 0.3
+                fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                layer.add(fade, forKey: "fadeIn")
+            }
+            return
+        }
+
+        let duration: CFTimeInterval = 0.75
+        let ease = CAMediaTimingFunction(name: .easeOut)
+        // Effective rolling radius: half the glyph band. angle = distance / r.
+        let radius = max(titleHeight / 2, 1)
+
+        // "Pet": starts fully off the LEFT edge, rolls right (clockwise → the
+        // angle unwinds from +mag down to 0).
+        let petStartX = -pet.bounds.width / 2 - 30
+        let petDistance = petRest.x - petStartX
+        addRoll(to: pet, fromX: petStartX, toX: petRest.x,
+                startAngle: petDistance / radius, duration: duration, timing: ease)
+
+        // "al": starts fully off the RIGHT edge, rolls left (counter-clockwise
+        // → the angle winds from -mag up to 0).
+        let alStartX = windowWidth + al.bounds.width / 2 + 30
+        let alDistance = alStartX - alRest.x
+        addRoll(to: al, fromX: alStartX, toX: alRest.x,
+                startAngle: -(alDistance / radius), duration: duration, timing: ease)
+
+        // The "." is a static center anchor; fade it in over the first part of
+        // the roll so it "lands" roughly as the halves converge on it.
+        let dotFade = CABasicAnimation(keyPath: "opacity")
+        dotFade.fromValue = 0
+        dotFade.toValue = 1
+        dotFade.duration = duration * 0.5
+        dotFade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        dot.add(dotFade, forKey: "dotFade")
+    }
+
+    /// Adds a coupled translation + rotation "roll" animation to `layer`. The
+    /// layer's model values are assumed to already be at their resting state
+    /// (final x, rotation 0); `.backwards` fill makes it appear at the start
+    /// pose before the animation begins.
+    private static func addRoll(
+        to layer: CALayer,
+        fromX: CGFloat, toX: CGFloat,
+        startAngle: CGFloat,
+        duration: CFTimeInterval,
+        timing: CAMediaTimingFunction
+    ) {
+        let move = CABasicAnimation(keyPath: "position.x")
+        move.fromValue = fromX
+        move.toValue = toX
+
+        let spin = CABasicAnimation(keyPath: "transform.rotation.z")
+        spin.fromValue = startAngle
+        spin.toValue = 0
+
+        let group = CAAnimationGroup()
+        group.animations = [move, spin]
+        group.duration = duration
+        group.timingFunction = timing
+        group.fillMode = .backwards
+        group.isRemovedOnCompletion = true
+        layer.add(group, forKey: "rollIn")
+    }
+
+    /// Builds the wordmark font. We approximate *Nature* magazine's bespoke,
+    /// proprietary wordmark — a heavy, high-contrast Didone serif — with the
+    /// closest macOS-bundled face, `Didot-Bold`. A graceful fallback chain
+    /// (Bodoni 72 Bold → Charter Black → a `.serif`-design system font →
+    /// bold system font) keeps this robust if a face is ever unavailable; no
+    /// named font is force-unwrapped.
+    ///
+    /// If a licensed Nature-style font is ever bundled into Resources, register
+    /// it and prefer it at the head of this chain.
+    private static func titleFont(ofSize size: CGFloat) -> NSFont {
+        if let f = NSFont(name: "Didot-Bold", size: size) { return f }
+        if let f = NSFont(name: "BodoniSvtyTwoITCTT-Bold", size: size) { return f }
+        if let f = NSFont(name: "Charter-Black", size: size) { return f }
+        let base = NSFont.systemFont(ofSize: size, weight: .bold)
+        if let serif = base.fontDescriptor.withDesign(.serif),
+           let f = NSFont(descriptor: serif, size: size) {
+            return f
+        }
+        return base
+    }
+
+    /// Creates a center-anchored `CATextLayer` sized to `text` in `font`, ready
+    /// to be positioned by its center and rotated about that center.
+    private static func makeGlyphLayer(_ text: String, font: NSFont, color: NSColor, scale: CGFloat) -> CATextLayer {
+        let layer = CATextLayer()
+        layer.string = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
+        let size = (text as NSString).size(withAttributes: [.font: font])
+        layer.bounds = CGRect(x: 0, y: 0, width: ceil(size.width) + 2, height: ceil(size.height))
+        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        layer.alignmentMode = .center
+        layer.isWrapped = false
+        layer.truncationMode = .none
+        layer.contentsScale = scale
+        return layer
     }
 
     /// Closes the splash window, if visible.
