@@ -1,11 +1,11 @@
 import AppKit
 
 /// Pre-main-window launch splash: a borderless, floating `NSWindow` showing
-/// the app icon, the animated "Pet.al" wordmark, and a single "Research Now"
-/// button. The splash stays up indefinitely — there is no auto-dismiss timer —
-/// until the user clicks the button, at which point the supplied
-/// `onResearchNow` closure runs (revealing the main window) and the caller is
-/// responsible for calling `dismiss()`.
+/// the animated "Pet.al" wordmark and a single "Research Now" button. The
+/// splash stays up indefinitely — there is no auto-dismiss timer — until the
+/// user clicks the button, at which point the supplied `onResearchNow` closure
+/// runs (revealing the main window) and the caller is responsible for calling
+/// `dismiss()`.
 ///
 /// This is implemented at the AppKit level (rather than as a SwiftUI
 /// `WindowGroup`/view) because it needs to appear *before* SwiftUI's own
@@ -51,20 +51,16 @@ enum SplashWindowController {
 
         // --- Window layout (bottom-up) --------------------------------------
         let windowWidth: CGFloat = 300
-        let topMargin: CGFloat = 30
-        let iconSide: CGFloat = 170
-        let gapIconTitle: CGFloat = 16
+        let topMargin: CGFloat = 44
         let titleHeight = ceil(glyphH) + 4
-        let gapTitleButton: CGFloat = 22
+        let gapTitleButton: CGFloat = 26
         let buttonHeight: CGFloat = 34
-        let bottomMargin: CGFloat = 30
+        let bottomMargin: CGFloat = 36
 
-        let windowHeight = topMargin + iconSide + gapIconTitle
-            + titleHeight + gapTitleButton + buttonHeight + bottomMargin
+        let windowHeight = topMargin + titleHeight + gapTitleButton + buttonHeight + bottomMargin
         let windowSize = NSSize(width: windowWidth, height: windowHeight)
 
-        let iconOriginY = windowHeight - topMargin - iconSide
-        let titleOriginY = iconOriginY - gapIconTitle - titleHeight
+        let titleOriginY = windowHeight - topMargin - titleHeight
         let buttonOriginY = titleOriginY - gapTitleButton - buttonHeight
 
         let splash = NSWindow(
@@ -85,22 +81,6 @@ enum SplashWindowController {
         let contentView = NSView(frame: NSRect(origin: .zero, size: windowSize))
         contentView.wantsLayer = true
         contentView.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-
-        // Icon, clipped to a rounded square so it still reads as the app
-        // icon shape, centered near the top of the window.
-        let iconOrigin = NSPoint(x: (windowWidth - iconSide) / 2, y: iconOriginY)
-        let iconContainer = NSView(frame: NSRect(origin: iconOrigin, size: NSSize(width: iconSide, height: iconSide)))
-        iconContainer.wantsLayer = true
-        iconContainer.layer?.backgroundColor = NSColor.clear.cgColor
-        iconContainer.layer?.cornerRadius = iconSide * 0.2237
-        iconContainer.layer?.masksToBounds = true
-
-        let imageView = NSImageView(frame: NSRect(origin: .zero, size: NSSize(width: iconSide, height: iconSide)))
-        imageView.image = appIcon()
-        imageView.imageScaling = .scaleProportionallyUpOrDown
-        imageView.imageAlignment = .alignCenter
-        imageView.autoresizingMask = [.width, .height]
-        iconContainer.addSubview(imageView)
 
         // Title container spanning the full window width; the glyph layers are
         // positioned by their centers within it. A layer-backed, non-flipped
@@ -143,7 +123,6 @@ enum SplashWindowController {
         button.action = #selector(ResearchNowTarget.invoke)
         button.keyEquivalent = "\r"
 
-        contentView.addSubview(iconContainer)
         contentView.addSubview(titleContainer)
         contentView.addSubview(button)
         splash.contentView = contentView
@@ -299,26 +278,6 @@ enum SplashWindowController {
                 splash.close()
             }
         }
-    }
-
-    /// Resolves the app icon at full resolution. `NSApp.applicationIconImage`
-    /// can hand back a downscaled/cached representation, so we prefer loading
-    /// the high-res source PNG straight out of the app bundle's Resources
-    /// (copied there by `scripts/package_app.sh`) and only fall back to the
-    /// system-provided icon (or an SF Symbol) when that's unavailable, e.g.
-    /// during an unpackaged `swift run` debug launch.
-    private static func appIcon() -> NSImage? {
-        if let url = Bundle.main.url(forResource: "EasyReader_icon", withExtension: "png"),
-           let icon = NSImage(contentsOf: url) {
-            return icon
-        }
-        if let icon = NSApp.applicationIconImage {
-            return icon
-        }
-        if let icon = NSImage(named: NSImage.applicationIconName) {
-            return icon
-        }
-        return NSImage(systemSymbolName: "doc.text", accessibilityDescription: "PaperReader")
     }
 
     /// Small `@objc` target/action shim so the "Research Now" button can
