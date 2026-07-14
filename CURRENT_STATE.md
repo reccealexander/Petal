@@ -76,6 +76,7 @@ Package.swift                   Swift 6 package, macOS 14+
 - Explicit two-paper compare plus split-out; reader panes scroll/zoom independently — `Views/Reader/CompareReaderView.swift`.
 - Best-effort edge snap joins any registered main/reader/notes pair into an `HSplitView`, with split-out — `Views/Reader/CompareCoordinator.swift`, `App/WindowJoining.swift`.
 - Focus Mode hides other apps and PaperReader windows, strips reader chrome, and exposes a floating reader toolbar — `App/FocusModeController.swift`, `Views/Reader/PDFReaderView.swift`.
+- Per-paper reader window size/shape memory: each standalone reader window gets a unique AppKit frame autosave name (`PetalReader-<paperId>`), so resizing and closing a paper restores that window's exact frame on reopen; papers never resized keep the SwiftUI default (no migration, no `paper`-row writes) — `Views/Reader/PDFReaderView.swift` (`restoreWindowFrame`).
 
 ### Claude/Gemini AI
 

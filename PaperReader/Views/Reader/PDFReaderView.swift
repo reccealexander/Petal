@@ -147,6 +147,7 @@ struct PDFReaderView: View {
                         WindowAccessor { window in
                             readerWindow = window
                             snapController.register(ref: .reader(paperId: paper.id), window: window)
+                            restoreWindowFrame(for: window)
                             updateWindowAppearance(for: window)
                         }
                     }
@@ -505,6 +506,23 @@ struct PDFReaderView: View {
             guard pageIndex >= 0, pageIndex < document.pageCount else { return nil }
             return PDFChapterEntry(id: childIndex, label: rawLabel, pageIndex: pageIndex)
         }
+    }
+
+    /// Per-paper window size/shape memory. Giving each reader window a unique
+    /// frame autosave name (keyed by paper id) makes AppKit persist that
+    /// window's frame to `UserDefaults` on every resize/move and restore it the
+    /// next time this paper is opened — no migration, no `paper`-row writes, so
+    /// it never churns the V11 sync-state triggers. A paper that has never been
+    /// resized has no saved entry, so `setFrame(using:)` is a no-op and the
+    /// SwiftUI default window size is preserved.
+    private func restoreWindowFrame(for window: NSWindow) {
+        let autosaveName = "PetalReader-\(paper.id)"
+        // Only wire this once per window. Re-resolves (e.g. focus-mode toggles
+        // re-invoking the accessor) must not clobber the user's live frame with
+        // the last-saved one.
+        guard window.frameAutosaveName != autosaveName else { return }
+        window.setFrameUsingName(autosaveName)
+        window.setFrameAutosaveName(autosaveName)
     }
 
     private func updateWindowAppearance(for window: NSWindow) {
