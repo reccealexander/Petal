@@ -83,6 +83,7 @@ public final class DatabaseManager {
         V8AddFurthestPageRead.register(in: &migrator)
         V9AddNoteRTF.register(in: &migrator)
         V10AddNotebookSummaryPaperSet.register(in: &migrator)
+        V11AddSyncState.register(in: &migrator)
         return migrator
     }
 
