@@ -218,6 +218,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         private var fetchedPages: Set<Int> = []
         private var inFlightPages: Set<Int> = []
         private var autoSuggestTask: Task<Void, Never>?
+        private var sweepAnimationTask: Task<Void, Never>?
         private var proposalGeneration = 0
         let keyIdeaService = KeyIdeaSuggestionService()
         var popover: NSPopover?
@@ -420,7 +421,7 @@ struct PDFKitWrapper: NSViewRepresentable {
             rehydrate()
         }
 
-        private func renderProposals(forPage pageIndex: Int) {
+        private func renderProposals(forPage pageIndex: Int, animated: Bool = false) {
             removeDrawnProposalAnnotations()
             guard let document = pdfView?.document,
                   let page = document.page(at: pageIndex)
@@ -442,9 +443,60 @@ struct PDFKitWrapper: NSViewRepresentable {
                 proposedAnnotations[proposal.id] = annotations
             }
             model.keyIdeaProposals = proposals
+
+            let sweeps = proposedAnnotations.values
+                .flatMap { $0 }
+                .compactMap { $0 as? SweepHighlightAnnotation }
+            sweepAnimationTask?.cancel()
+            sweepAnimationTask = nil
+
+            guard animated, !sweeps.isEmpty else {
+                for sweep in sweeps {
+                    sweep.progress = 1
+                }
+                invalidateSweepDisplay(sweeps)
+                return
+            }
+
+            for sweep in sweeps {
+                sweep.progress = 0
+            }
+            invalidateSweepDisplay(sweeps)
+
+            let generation = proposalGeneration
+            let startPage = pageIndex
+            sweepAnimationTask = Task { @MainActor [weak self] in
+                let duration = 0.5
+                let start = Date()
+                while true {
+                    if Task.isCancelled { return }
+                    guard let self,
+                          self.proposalGeneration == generation,
+                          self.model.currentPageIndex == startPage
+                    else { return }
+                    let t = min(1, Date().timeIntervalSince(start) / duration)
+                    let eased = 1 - pow(1 - t, 3)
+                    for sweep in sweeps {
+                        sweep.progress = CGFloat(eased)
+                    }
+                    self.invalidateSweepDisplay(sweeps)
+                    if t >= 1 { return }
+                    try? await Task.sleep(nanoseconds: 16_000_000)
+                }
+            }
+        }
+
+        private func invalidateSweepDisplay(_ annotations: [SweepHighlightAnnotation]) {
+            guard let pdfView else { return }
+            for annotation in annotations {
+                guard let page = annotation.page else { continue }
+                pdfView.setNeedsDisplay(pdfView.convert(annotation.bounds, from: page))
+            }
         }
 
         private func removeDrawnProposalAnnotations() {
+            sweepAnimationTask?.cancel()
+            sweepAnimationTask = nil
             proposedAnnotations.values.forEach(HighlightRenderer.removeAnnotations)
             proposedAnnotations.removeAll()
             proposalLabelToId.removeAll()
@@ -508,7 +560,7 @@ struct PDFKitWrapper: NSViewRepresentable {
                     }
                     self.proposalsByPage[pageIndex] = proposals
                     self.fetchedPages.insert(pageIndex)
-                    self.renderProposals(forPage: pageIndex)
+                    self.renderProposals(forPage: pageIndex, animated: true)
                 } catch GeminiClientError.missingAPIKey {
                     if self.proposalGeneration == generation,
                        self.pdfView?.currentPage === page {
@@ -575,6 +627,8 @@ struct PDFKitWrapper: NSViewRepresentable {
         func clearKeyIdeaProposals() {
             autoSuggestTask?.cancel()
             autoSuggestTask = nil
+            sweepAnimationTask?.cancel()
+            sweepAnimationTask = nil
             proposalGeneration += 1
             proposalsByPage.removeAll()
             fetchedPages.removeAll()

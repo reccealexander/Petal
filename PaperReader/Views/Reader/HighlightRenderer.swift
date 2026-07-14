@@ -23,6 +23,35 @@ final class PDFImageStampAnnotation: PDFAnnotation {
     }
 }
 
+final class SweepHighlightAnnotation: PDFAnnotation {
+    var progress: CGFloat = 1
+    private let fillColor: NSColor
+
+    init(bounds: CGRect, color: NSColor) {
+        self.fillColor = color
+        super.init(bounds: bounds, forType: .stamp, withProperties: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(with box: PDFDisplayBox, in context: CGContext) {
+        let clamped = max(0, min(1, progress))
+        guard clamped > 0 else { return }
+        let rect = CGRect(
+            x: bounds.minX,
+            y: bounds.minY,
+            width: bounds.width * clamped,
+            height: bounds.height
+        )
+        context.saveGState()
+        context.setFillColor(fillColor.cgColor)
+        context.fill(rect)
+        context.restoreGState()
+    }
+}
+
 /// Pure PDFKit rendering for highlights: turning a `PDFSelection` into per-page
 /// spans, turning a stored `Highlight` into `PDFAnnotation`s on a page, and back.
 /// This file owns no persistence — `HighlightRepository` is the source of truth
@@ -144,8 +173,10 @@ enum HighlightRenderer {
     static func addProposalAnnotations(rects: [CGRect], on page: PDFPage) -> [PDFAnnotation] {
         rects.compactMap { rect in
             guard !rect.isNull, !rect.isEmpty else { return nil }
-            let annotation = PDFAnnotation(bounds: rect, forType: .highlight, withProperties: nil)
-            annotation.color = NSColor.systemOrange.withAlphaComponent(0.28)
+            let annotation = SweepHighlightAnnotation(
+                bounds: rect,
+                color: NSColor.systemOrange.withAlphaComponent(0.28)
+            )
             page.addAnnotation(annotation)
             return annotation
         }
