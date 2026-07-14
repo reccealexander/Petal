@@ -550,12 +550,13 @@ struct PDFKitWrapper: NSViewRepresentable {
 
         private func invalidateSweepDisplay(_ annotations: [SweepHighlightAnnotation]) {
             guard let pdfView, let documentView = pdfView.documentView else { return }
-            for annotation in annotations {
-                guard let page = annotation.page else { continue }
-                let viewRect = pdfView.convert(annotation.bounds, from: page)
-                let docRect = documentView.convert(viewRect, from: pdfView)
-                documentView.setNeedsDisplay(docRect.insetBy(dx: -1, dy: -1))
-            }
+            // Redraw the whole visible document region. This now fires only on
+            // discrete events (initial hide, cached revisit, and the animation
+            // hand-off) — never per frame — so the cost is negligible. Targeted
+            // per-annotation invalidation did not reliably re-run PDFKit's
+            // annotation drawing, so the static highlight only appeared once a
+            // hover forced a repaint; invalidating the visible rect always does.
+            documentView.setNeedsDisplay(documentView.visibleRect)
         }
 
         private func removeDrawnProposalAnnotations() {
