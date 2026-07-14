@@ -16,7 +16,7 @@ public final class KeyIdeaSuggestionService: @unchecked Sendable {
         keychain.hasAPIKey
     }
 
-    public func suggestKeyIdeas(pageText: String) async throws -> [String] {
+    public func suggestKeyIdeas(pageText: String, instruction: String = "") async throws -> [String] {
         guard hasAPIKey else {
             throw GeminiClientError.missingAPIKey
         }
@@ -25,7 +25,7 @@ public final class KeyIdeaSuggestionService: @unchecked Sendable {
         guard !trimmed.isEmpty else { return [] }
         let boundedPageText = String(trimmed.prefix(Self.maxPageCharacters))
         let system = QuickActionPrompts.keyIdeaSystemPrompt
-        let user = QuickActionPrompts.keyIdeaUserMessage(pageText: boundedPageText)
+        let user = QuickActionPrompts.keyIdeaUserMessage(pageText: boundedPageText, instruction: instruction)
 
         var full = ""
         let stream = claude.streamMessage(

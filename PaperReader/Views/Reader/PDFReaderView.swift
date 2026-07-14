@@ -579,6 +579,21 @@ private struct KeyIdeaSuggestionPopover: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    TextField(
+                        "What should count as a key insight? (optional)",
+                        text: $model.keyIdeaInstruction
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { model.regenerateKeyIdeas() }
+                    Button("Apply") { model.regenerateKeyIdeas() }
+                }
+                Text("e.g. “the methodology”, “limitations”. Applies to this and following pages.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
             if model.isSuggestingKeyIdeas {
                 HStack {
                     ProgressView()

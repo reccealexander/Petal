@@ -24,12 +24,18 @@ final class PDFReaderModel: ObservableObject {
     @Published var isSuggestingKeyIdeas = false
     @Published var keyIdeaProposals: [KeyIdeaProposal] = []
     @Published var keyIdeaError: String?
+    /// Optional user instruction for what the AI should treat as a key insight.
+    /// Read by the coordinator at fetch time; `regenerateKeyIdeas()` re-runs the
+    /// current page with the latest value.
+    @Published var keyIdeaInstruction: String = ""
 
     var performAddHighlight: ((HighlightColor) -> Void)?
     func addHighlight(_ color: HighlightColor) { performAddHighlight?(color) }
 
     var performSuggestKeyIdeas: (() -> Void)?
     func suggestKeyIdeas() { performSuggestKeyIdeas?() }
+    var performRegenerateKeyIdeas: (() -> Void)?
+    func regenerateKeyIdeas() { performRegenerateKeyIdeas?() }
     var performAcceptKeyIdea: ((UUID) -> Void)?
     func acceptKeyIdea(_ id: UUID) { performAcceptKeyIdea?(id) }
     var performAcceptAllKeyIdeas: (() -> Void)?

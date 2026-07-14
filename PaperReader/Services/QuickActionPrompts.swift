@@ -108,10 +108,16 @@ public enum QuickActionPrompts {
         "Identify the key-idea sentences on a single page of a scientific paper."
 
     /// Builds the tightly constrained request used for page-level key ideas.
-    public static func keyIdeaUserMessage(pageText: String) -> String {
-        """
+    /// `instruction` is an optional user-supplied focus for what should count as
+    /// a key insight (e.g. "the methodology" or "limitations").
+    public static func keyIdeaUserMessage(pageText: String, instruction: String = "") -> String {
+        let focus = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        let focusLine = focus.isEmpty
+            ? ""
+            : "\nThe reader is specifically interested in: \(focus). Prioritize sentences relevant to that; if none on this page are relevant, return NOTHING.\n"
+        return """
         Return the 1-5 sentences that best capture this page's key ideas, copied VERBATIM from the text. Each sentence must be an exact substring: do not paraphrase or add or remove words. Do not use quotation marks or numbering.
-
+        \(focusLine)
         Output ONE sentence per line and NOTHING else.
         If the page has no substantive key ideas (for example, references, figures, or boilerplate), return NOTHING (an empty response).
 

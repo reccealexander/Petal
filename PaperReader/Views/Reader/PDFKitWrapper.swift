@@ -171,6 +171,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         model.providePageText = { [weak coord] in coord?.currentPageText() }
         model.provideOpenHighlight = { [weak coord] in coord?.openHighlightForQuickAction() }
         model.performSuggestKeyIdeas = { [weak coord] in coord?.fetchOrRenderCurrentPage() }
+        model.performRegenerateKeyIdeas = { [weak coord] in coord?.regenerateKeyIdeas() }
         model.performAcceptKeyIdea = { [weak coord] id in coord?.acceptKeyIdea(id) }
         model.performAcceptAllKeyIdeas = { [weak coord] in coord?.acceptAllKeyIdeas() }
         model.performDismissKeyIdea = { [weak coord] id in coord?.dismissKeyIdea(id) }
@@ -746,10 +747,22 @@ struct PDFKitWrapper: NSViewRepresentable {
             proposalLabelToId.removeAll()
             drawnPages.removeAll()
             model.keyIdeaProposals.removeAll()
-            // Detaching annotations doesn't repaint PDFKit on its own, so force a
-            // redraw — otherwise the removed badges/highlights linger until a hover
-            // or scroll (e.g. after turning AI Notes off).
+            // Detaching annotations doesn't repaint PDFKit on its own, and custom
+            // (image-stamp) tag annotations in particular can linger after a single
+            // setNeedsDisplay. Force a full re-render now and again next runloop so
+            // the tags/highlights actually disappear (e.g. after turning AI Notes off).
+            forceProposalRepaint()
+        }
+
+        /// Reliably clears removed proposal annotations from the display. A single
+        /// `setNeedsDisplay` sometimes leaves custom stamp annotations painted, so
+        /// re-lay-out the document view and invalidate again on the next runloop.
+        private func forceProposalRepaint() {
             invalidateSweepDisplay()
+            pdfView?.layoutDocumentView()
+            DispatchQueue.main.async { [weak self] in
+                self?.invalidateSweepDisplay()
+            }
         }
 
         func autoSuggestCurrentPageIfNeeded() {
@@ -780,6 +793,7 @@ struct PDFKitWrapper: NSViewRepresentable {
             else { return }
             let pageIndex = document.index(for: page)
             guard pageIndex != NSNotFound else { return }
+            let instruction = model.keyIdeaInstruction
 
             autoSuggestTask?.cancel()
             autoSuggestTask = nil
@@ -803,7 +817,7 @@ struct PDFKitWrapper: NSViewRepresentable {
                     }
                 }
                 do {
-                    let sentences = try await self.keyIdeaService.suggestKeyIdeas(pageText: text)
+                    let sentences = try await self.keyIdeaService.suggestKeyIdeas(pageText: text, instruction: instruction)
                     guard self.proposalGeneration == generation,
                           self.model.isAIAssistModeActive
                     else { return }
@@ -882,7 +896,7 @@ struct PDFKitWrapper: NSViewRepresentable {
             }
             model.keyIdeaProposals.removeAll { $0.id == id }
             // Force a repaint so the dismissed badge/marker actually disappears.
-            invalidateSweepDisplay()
+            forceProposalRepaint()
         }
 
         func clearKeyIdeaProposals() {
@@ -897,6 +911,14 @@ struct PDFKitWrapper: NSViewRepresentable {
             removeAllProposalAnnotations()
             model.isSuggestingKeyIdeas = false
             model.keyIdeaError = nil
+        }
+
+        /// Discards all current suggestions and re-runs the current page using the
+        /// latest `model.keyIdeaInstruction`. Keeps AI Notes mode on.
+        func regenerateKeyIdeas() {
+            guard model.isAIAssistModeActive else { return }
+            clearKeyIdeaProposals()
+            fetchOrRenderCurrentPage()
         }
 
         /// Removes every tracked annotation and redraws all of this paper's
