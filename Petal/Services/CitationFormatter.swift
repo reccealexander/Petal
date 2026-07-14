@@ -428,9 +428,36 @@ public enum CitationFormatter {
         }
 
         let body = fields
-            .map { "  \($0.0) = {\($0.1)}" }
+            .map { "  \($0.0) = {\(bibtexEscape($0.1))}" }
             .joined(separator: ",\n")
         return "@\(entryType){\(key),\n\(body)\n}"
+    }
+
+    /// Escapes a BibTeX `{…}` field value so special characters can't corrupt the
+    /// entry: `%` starts a comment (truncating the file), `&`/`$`/`#`/`_` are
+    /// LaTeX specials, and raw newlines/braces break parsing.
+    private static func bibtexEscape(_ s: String) -> String {
+        var out = ""
+        out.reserveCapacity(s.count)
+        for ch in s {
+            switch ch {
+            case "\\": out += "\\textbackslash{}"
+            case "%", "&", "$", "#", "_": out += "\\\(ch)"
+            case "{": out += "\\{"
+            case "}": out += "\\}"
+            case "~": out += "\\textasciitilde{}"
+            case "^": out += "\\textasciicircum{}"
+            case "\n", "\r": out += " "
+            default: out.append(ch)
+            }
+        }
+        return out
+    }
+
+    /// Strips CR/LF from an RIS value — the format is line-tagged, so an embedded
+    /// newline would produce an untagged continuation line that breaks parsers.
+    private static func risValue(_ s: String) -> String {
+        s.replacingOccurrences(of: "\r", with: " ").replacingOccurrences(of: "\n", with: " ")
     }
 
     /// A conventional BibTeX cite key: first author's family name + year +
@@ -458,13 +485,13 @@ public enum CitationFormatter {
         lines.append("TY  - \(m.container != nil ? "JOUR" : "GEN")")
         for author in m.authors {
             let name = author.given.map { "\(author.family), \($0)" } ?? author.family
-            lines.append("AU  - \(name)")
+            lines.append("AU  - \(risValue(name))")
         }
         if let title = m.title {
-            lines.append("TI  - \(title)")
+            lines.append("TI  - \(risValue(title))")
         }
         if let container = m.container, !container.isEmpty {
-            lines.append("JO  - \(container)")
+            lines.append("JO  - \(risValue(container))")
         }
         if let year = m.year {
             lines.append("PY  - \(year)")

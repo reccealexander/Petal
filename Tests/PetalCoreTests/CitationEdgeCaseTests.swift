@@ -218,11 +218,10 @@ final class CitationEdgeCaseTests: XCTestCase {
         XCTAssertTrue(out.hasPrefix("F1, A, et al."), out)
     }
 
-    // MARK: - BibTeX: escaping (documents the lack of it)
+    // MARK: - BibTeX: special-character escaping
 
-    func testBibTeXPercentInTitleIsNotEscaped() {
-        // BUG: "%" starts a comment in a .bib file; it is emitted raw and will
-        // corrupt the entry when parsed by BibTeX.
+    func testBibTeXPercentInTitleIsEscaped() {
+        // "%" starts a comment in a .bib file, so it must be escaped as "\%".
         let m = CitationMetadata(
             authors: [CitationAuthor(given: "John", family: "Smith")],
             title: "50% Faster Training",
@@ -230,26 +229,25 @@ final class CitationEdgeCaseTests: XCTestCase {
             container: "J"
         )
         let out = CitationFormatter.format(m, style: .bibtex)
-        XCTAssertTrue(out.contains("title = {50% Faster Training}"), out)
+        XCTAssertTrue(out.contains(#"title = {50\% Faster Training}"#), out)
     }
 
-    func testBibTeXAmpersandInTitleIsNotEscaped() {
-        // BUG: "&" is a LaTeX special char; emitted raw (should be "\\&").
+    func testBibTeXAmpersandInTitleIsEscaped() {
         let m = CitationMetadata(
             authors: [CitationAuthor(given: "J", family: "Smith")],
             title: "Cats & Dogs"
         )
         let out = CitationFormatter.format(m, style: .bibtex)
-        XCTAssertTrue(out.contains("title = {Cats & Dogs}"), out)
+        XCTAssertTrue(out.contains(#"title = {Cats \& Dogs}"#), out)
     }
 
-    func testBibTeXBracesInTitleArePassedThroughRaw() {
+    func testBibTeXBracesInTitleAreEscaped() {
         let m = CitationMetadata(
             authors: [CitationAuthor(given: "J", family: "Smith")],
             title: "A {Study}"
         )
         let out = CitationFormatter.format(m, style: .bibtex)
-        XCTAssertTrue(out.contains("title = {A {Study}}"), out)
+        XCTAssertTrue(out.contains(#"title = {A \{Study\}}"#), out)
     }
 
     func testBibTeXUnicodeInTitleIsPassedThroughRaw() {
@@ -316,15 +314,16 @@ final class CitationEdgeCaseTests: XCTestCase {
 
     // MARK: - RIS
 
-    func testRISNewlineInTitleBreaksLineStructure() {
-        // BUG: RIS is a line-oriented tag format; an embedded newline in the
-        // title emits a tagless continuation line.
+    func testRISNewlineInTitleIsFlattened() {
+        // RIS is a line-oriented tag format, so an embedded newline is flattened
+        // to a space rather than producing a tagless continuation line.
         let m = CitationMetadata(
             authors: [CitationAuthor(given: "J", family: "Smith")],
             title: "Line1\nLine2"
         )
         let out = CitationFormatter.format(m, style: .ris)
-        XCTAssertTrue(out.contains("TI  - Line1\nLine2"), out)
+        XCTAssertTrue(out.contains("TI  - Line1 Line2"), out)
+        XCTAssertFalse(out.contains("TI  - Line1\nLine2"), out)
     }
 
     func testRISEmptyStringContainerStillClaimsJOUR() {
