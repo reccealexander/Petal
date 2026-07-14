@@ -595,6 +595,13 @@ enum SplashWindowController {
         guard !landingStarted else { return }
         landingStarted = true
 
+        // Landing transition turned off in Preferences → the flower has already
+        // bloomed; just reveal the library directly (no petals-to-corners/fill).
+        if !AppearanceManager.isLandingTransitionEnabled {
+            fireResearchNow()
+            return
+        }
+
         guard let splash = window,
               let mainFrame = mainWindowFrame() else {
             fireResearchNow()

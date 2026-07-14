@@ -202,6 +202,13 @@ private struct AppearanceSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            Toggle("Play petal “bloom-to-window” transition", isOn: $appearance.landingTransitionEnabled)
+                .disabled(!appearance.launchAnimationEnabled)
+
+            Text("When off, the flower still blooms but the petals-fly-to-the-corners and fill effect is skipped — the library opens right after the bloom.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Divider()
 
             Text("Chat font")

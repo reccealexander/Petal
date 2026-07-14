@@ -15,6 +15,7 @@ final class AppearanceManager: ObservableObject {
     private static let chatFontNameDefaultsKey = "chatFontName"
     private static let chatFontSizeDefaultsKey = "chatFontSize"
     private static let launchAnimationDefaultsKey = "launchAnimationEnabled"
+    private static let landingTransitionDefaultsKey = "landingTransitionEnabled"
 
     /// Reads the "play launch animation" preference straight from UserDefaults,
     /// for the AppKit-level splash (`SplashWindowController`) which runs before
@@ -23,6 +24,16 @@ final class AppearanceManager: ObservableObject {
         UserDefaults.standard.object(forKey: launchAnimationDefaultsKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: launchAnimationDefaultsKey)
+    }
+
+    /// Reads the "petals-to-window landing transition" preference from
+    /// UserDefaults (the splash reads it directly, same as above). When off, the
+    /// flower still blooms but the petals-fly-to-corners + spill/fill hand-off is
+    /// skipped and the main window is revealed directly. Defaults to `true`.
+    static var isLandingTransitionEnabled: Bool {
+        UserDefaults.standard.object(forKey: landingTransitionDefaultsKey) == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: landingTransitionDefaultsKey)
     }
 
     enum Appearance: String, CaseIterable, Identifiable {
@@ -73,6 +84,16 @@ final class AppearanceManager: ObservableObject {
     @Published var launchAnimationEnabled: Bool {
         didSet {
             UserDefaults.standard.set(launchAnimationEnabled, forKey: Self.launchAnimationDefaultsKey)
+        }
+    }
+
+    /// Whether the petals-fly-to-corners + spill/fill landing transition plays
+    /// after the flower blooms. When off, the flower still blooms but the main
+    /// window is revealed directly. Read at hand-off time via
+    /// `isLandingTransitionEnabled`.
+    @Published var landingTransitionEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(landingTransitionEnabled, forKey: Self.landingTransitionDefaultsKey)
         }
     }
 
@@ -128,6 +149,11 @@ final class AppearanceManager: ObservableObject {
             self.launchAnimationEnabled = true
         } else {
             self.launchAnimationEnabled = UserDefaults.standard.bool(forKey: Self.launchAnimationDefaultsKey)
+        }
+        if UserDefaults.standard.object(forKey: Self.landingTransitionDefaultsKey) == nil {
+            self.landingTransitionEnabled = true
+        } else {
+            self.landingTransitionEnabled = UserDefaults.standard.bool(forKey: Self.landingTransitionDefaultsKey)
         }
         if UserDefaults.standard.object(forKey: Self.aiPanelWidthDefaultsKey) == nil {
             self.aiPanelWidth = 340
