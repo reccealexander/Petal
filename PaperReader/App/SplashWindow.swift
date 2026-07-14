@@ -60,12 +60,23 @@ enum SplashWindowController {
     /// Re-entrancy guard so the landing transition runs at most once.
     private static var landingStarted = false
 
+    /// Guaranteed-correct source of the main window's screen frame, set by the
+    /// app from the live main-library `NSWindow` (see `PaperReaderApp`). The
+    /// landing transition prefers this over guessing via `NSApp.windows`.
+    static var mainWindowFrameProvider: (() -> NSRect?)?
+
     /// Whether the splash window is currently shown.
     static var isActive: Bool { window != nil }
 
     /// Whether `candidate` is the splash window itself (as opposed to the
     /// main SwiftUI window or any other window in the app).
     static func isSplashWindow(_ candidate: NSWindow) -> Bool { candidate === window }
+
+    /// Whether `candidate` is the transient landing-transition overlay. Like the
+    /// splash, it must be EXEMPT from the app's "hide every non-splash window"
+    /// sweeps while the launch sequence runs — otherwise those observers
+    /// `orderOut` it the moment it appears and the transition renders nothing.
+    static func isTransitionWindow(_ candidate: NSWindow) -> Bool { candidate === transitionWindow }
 
     /// Creates and shows the splash window immediately, above other windows.
     /// The window has no timer — it stays up until the user clicks
@@ -595,7 +606,9 @@ enum SplashWindowController {
         overlay.isOpaque = false
         overlay.backgroundColor = .clear
         overlay.hasShadow = false
-        overlay.level = .floating
+        // One level ABOVE the (also-floating) splash so the transition is never
+        // ordered behind it.
+        overlay.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
         overlay.ignoresMouseEvents = true
 
         let overlayView = NSView(frame: NSRect(origin: .zero, size: overlayFrame.size))
@@ -623,10 +636,14 @@ enum SplashWindowController {
         let now = CACurrentMediaTime()
         let flyStagger: CFTimeInterval = 0.16
         let flyDuration: CFTimeInterval = 0.30
-        let spillDuration: CFTimeInterval = 0.36
+        let spillDuration: CFTimeInterval = 0.5
         let petalLength: CGFloat = 118
         let petalWidth: CGFloat = 46
         let pinkColor = NSColor.systemPink.cgColor
+        // Petals fly in pink, then "change color" as they hit the corner and
+        // spill: white in light mode, black in dark mode, per the app appearance.
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let spillFill = (isDark ? NSColor.black : NSColor.white).cgColor
         let petalShape = petalPath(length: petalLength, width: petalWidth)
 
         var lastSpillEnd: CFTimeInterval = 0
@@ -636,7 +653,7 @@ enum SplashWindowController {
             // Spill (added first → beneath the petals). Grows from the corner to
             // fill its quadrant just as the petal dissolves there.
             let spill = makeSpillLayer(quadrant: entry.quadrant,
-                                       corner: entry.corner, color: pinkColor)
+                                       corner: entry.corner, color: spillFill)
             root.addSublayer(spill)
             let spillBegin = stagger + flyDuration * 0.72
             spill.add(spillGrowAnimation(beginTime: now + spillBegin,
@@ -707,6 +724,13 @@ enum SplashWindowController {
     /// to. Falls through progressively looser heuristics; returns nil if no
     /// plausible main window exists yet (caller then reveals immediately).
     private static func mainWindowFrame() -> NSRect? {
+        // Preferred: the app-supplied live main-window frame.
+        if let provided = mainWindowFrameProvider?(),
+           provided.width > 200, provided.height > 200 {
+            return provided
+        }
+        // Fallbacks: guess from NSApp.windows (fragile — SwiftUI doesn't set
+        // the scene id as the NSWindow identifier).
         let candidates = NSApp.windows.filter { window in
             !isSplashWindow(window) && window !== transitionWindow
         }

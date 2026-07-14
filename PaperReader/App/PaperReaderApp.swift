@@ -46,7 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hideIfNeeded: @Sendable (Notification) -> Void = { _ in
             MainActor.assumeIsolated {
                 guard SplashWindowController.isActive else { return }
-                for window in NSApp.windows where !SplashWindowController.isSplashWindow(window) {
+                for window in NSApp.windows where !SplashWindowController.isSplashWindow(window)
+            && !SplashWindowController.isTransitionWindow(window) {
                     window.orderOut(nil)
                 }
             }
@@ -59,7 +60,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     private func hideNonSplashWindows() {
-        for window in NSApp.windows where !SplashWindowController.isSplashWindow(window) {
+        for window in NSApp.windows where !SplashWindowController.isSplashWindow(window)
+            && !SplashWindowController.isTransitionWindow(window) {
             window.orderOut(nil)
         }
     }
@@ -78,7 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hideObservers.removeAll()
 
         NSApp.activate(ignoringOtherApps: true)
-        for window in NSApp.windows where !SplashWindowController.isSplashWindow(window) {
+        for window in NSApp.windows where !SplashWindowController.isSplashWindow(window)
+            && !SplashWindowController.isTransitionWindow(window) {
             window.makeKeyAndOrderFront(nil)
         }
     }
@@ -115,6 +118,13 @@ struct PaperReaderApp: App {
                 .background {
                     WindowAccessor { window in
                         snapController.register(ref: .main, window: window)
+                        // Give the splash's landing transition a
+                        // guaranteed-correct target: the live main window's
+                        // frame (SwiftUI never sets NSWindow.identifier to the
+                        // scene id, so heuristic lookup is unreliable).
+                        SplashWindowController.mainWindowFrameProvider = { [weak window] in
+                            window?.frame
+                        }
                     }
                 }
                 .background(WindowJoinBridge(controller: snapController))
