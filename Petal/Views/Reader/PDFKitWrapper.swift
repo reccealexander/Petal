@@ -707,7 +707,15 @@ struct PDFKitWrapper: NSViewRepresentable {
                 .compactMap { $0 as? SweepOverlayView }
                 .forEach { $0.removeFromSuperview() }
             sweepOverlay = nil
+            // If a sweep is torn down before its reveal finishes (e.g. scrolling
+            // to a new page mid-animation), RUN the pending finalize instead of
+            // dropping it — otherwise that page's proposals keep an empty (but
+            // non-nil) annotation array and stay listed in the popover while
+            // never actually drawing or being clickable. finalize nils itself
+            // before it self-calls removeSweepOverlay, so this can't recurse.
+            let pendingFinalize = finalizeSweepAction
             finalizeSweepAction = nil
+            pendingFinalize?()
             sweepBars = []
             sweepConnectors = []
             sweepTagLayers = []
