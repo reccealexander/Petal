@@ -594,6 +594,10 @@ struct PDFKitWrapper: NSViewRepresentable {
             proposalLabelToId.removeAll()
             drawnPages.removeAll()
             model.keyIdeaProposals.removeAll()
+            // Detaching annotations doesn't repaint PDFKit on its own, so force a
+            // redraw — otherwise the removed badges/highlights linger until a hover
+            // or scroll (e.g. after turning AI Notes off).
+            invalidateSweepDisplay()
         }
 
         func autoSuggestCurrentPageIfNeeded() {
@@ -725,6 +729,8 @@ struct PDFKitWrapper: NSViewRepresentable {
                 proposalsByPage[pageIndex]?.removeAll { $0.id == id }
             }
             model.keyIdeaProposals.removeAll { $0.id == id }
+            // Force a repaint so the dismissed badge/marker actually disappears.
+            invalidateSweepDisplay()
         }
 
         func clearKeyIdeaProposals() {
