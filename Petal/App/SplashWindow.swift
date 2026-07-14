@@ -446,20 +446,20 @@ enum SplashWindowController {
         //  t 0.88–…     petals bloom: hero petal (top-right), ring 1 clockwise,
         //               then ring 2 interleaved with NO gap (same cadence)
         //  end + 0.25   brief hold, then the stored onResearchNow fires
-        let translateDuration: CFTimeInterval = 0.40
+        let translateDuration: CFTimeInterval = 0.28
         let growBegin: CFTimeInterval = translateDuration
-        let growDuration: CFTimeInterval = 0.48
-        let petalsBegin: CFTimeInterval = growBegin + growDuration // 0.88
+        let growDuration: CFTimeInterval = 0.34
+        let petalsBegin: CFTimeInterval = growBegin + growDuration
 
-        let heroPetalDuration: CFTimeInterval = 0.40
-        let ring1Stagger: CFTimeInterval = 0.06
-        let ring1Duration: CFTimeInterval = 0.28
+        let heroPetalDuration: CFTimeInterval = 0.26
+        let ring1Stagger: CFTimeInterval = 0.035
+        let ring1Duration: CFTimeInterval = 0.20
         // Ring 2 continues the exact same cadence right after ring 1's last
         // petal starts — no pause between the rings.
         let ring2Begin: CFTimeInterval = petalsBegin + heroPetalDuration
             + CFTimeInterval(petalsPerRing) * ring1Stagger
-        let ring2Stagger: CFTimeInterval = 0.05
-        let ring2Duration: CFTimeInterval = 0.28
+        let ring2Stagger: CFTimeInterval = 0.03
+        let ring2Duration: CFTimeInterval = 0.20
         let bloomEnd = ring2Begin + CFTimeInterval(petalsPerRing - 1) * ring2Stagger + ring2Duration
 
         let now = CACurrentMediaTime()
@@ -470,7 +470,7 @@ enum SplashWindowController {
                 // Let the completed flower register for a beat, then hand off
                 // to the landing transition (petals fly to the main-window
                 // corners, spill and fill it, and crossfade to the live UI).
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     MainActor.assumeIsolated { beginLandingTransition() }
                 }
             }
@@ -574,7 +574,7 @@ enum SplashWindowController {
         // old net revealed the window with no transition at all. Both triggers
         // are safe because `beginLandingTransition` is idempotent
         // (`landingStarted`); whichever fires first wins.
-        DispatchQueue.main.asyncAfter(deadline: .now() + bloomEnd + 0.25) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + bloomEnd + 0.1) {
             MainActor.assumeIsolated { beginLandingTransition() }
         }
         // Absolute last-resort net: if the landing transition can neither run
@@ -679,9 +679,9 @@ enum SplashWindowController {
 
         // --- Timeline --------------------------------------------------------
         let now = CACurrentMediaTime()
-        let flyStagger: CFTimeInterval = 0.16
-        let flyDuration: CFTimeInterval = 0.30
-        let spillDuration: CFTimeInterval = 0.5
+        let flyStagger: CFTimeInterval = 0.08
+        let flyDuration: CFTimeInterval = 0.26
+        let spillDuration: CFTimeInterval = 0.4
         let petalLength: CGFloat = 118
         let petalWidth: CGFloat = 46
         let pinkColor = NSColor.systemPink.cgColor
@@ -729,7 +729,7 @@ enum SplashWindowController {
         // Settle: a window-colored fill fades in over the full pink rect once
         // all four quadrants are filled — a bridge from pink to the real UI.
         let settleBegin = lastSpillEnd + 0.05
-        let settleDuration: CFTimeInterval = 0.28
+        let settleDuration: CFTimeInterval = 0.22
         let windowFill = CAShapeLayer()
         windowFill.path = CGPath(rect: mainRectC, transform: nil)
         windowFill.fillColor = NSColor.windowBackgroundColor.cgColor
@@ -1038,9 +1038,9 @@ enum SplashWindowController {
             return
         }
 
-        let fadeDuration: CFTimeInterval = 0.35
-        let holdDuration: CFTimeInterval = 0.5
-        let slideDuration: CFTimeInterval = 0.55
+        let fadeDuration: CFTimeInterval = 0.3
+        let holdDuration: CFTimeInterval = 0.35
+        let slideDuration: CFTimeInterval = 0.45
         let now = CACurrentMediaTime()
         let slideEase = CAMediaTimingFunction(name: .easeInEaseOut)
 
