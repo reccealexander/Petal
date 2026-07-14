@@ -233,9 +233,11 @@ struct PDFKitWrapper: NSViewRepresentable {
         /// PDFView's non-scrolling space, so scrolling mid-animation would
         /// otherwise slide the bars out of line with the text).
         private var finalizeSweepAction: (() -> Void)?
-        /// Last observed scroll (clip-view) origin, used to tell a real scroll
-        /// apart from a layout-only bounds change when finalizing the sweep.
-        private var lastScrollOrigin: CGPoint?
+        /// The running sweep's layers paired with their source page-space rects,
+        /// plus the page they're on, so the bars can be re-pinned to the text as
+        /// the user scrolls (the overlay itself lives in non-scrolling space).
+        private var sweepBars: [(layer: CALayer, rect: CGRect)] = []
+        private var sweepAnimationPage: PDFPage?
         private var proposalGeneration = 0
         let keyIdeaService = KeyIdeaSuggestionService()
         var popover: NSPopover?
@@ -305,21 +307,9 @@ struct PDFKitWrapper: NSViewRepresentable {
         /// so bounds changes also feed the same lightweight debounce.
         @objc func scrollChanged(_ note: Notification) {
             resumeAutosave.schedule()
-            // The sweep overlay lives in the PDFView's non-scrolling space, so a
-            // real scroll mid-animation would misalign the bars with the text.
-            // Finish the hand-off in that case (the persistent highlights are page
-            // annotations that scroll correctly). But `boundsDidChange` also fires
-            // on layout/size changes — e.g. when we add the overlay/annotations —
-            // which must NOT cancel the animation, so only act on a genuine scroll
-            // (the clip view's origin actually moved).
-            guard let clip = note.object as? NSClipView else { return }
-            let origin = clip.bounds.origin
-            let previous = lastScrollOrigin
-            lastScrollOrigin = origin
-            if let previous,
-               abs(previous.x - origin.x) > 0.5 || abs(previous.y - origin.y) > 0.5 {
-                finalizeSweepAction?()
-            }
+            // Keep the sweep bars pinned to their text while scrolling so they
+            // don't drift (the animation keeps playing).
+            repositionSweepBars()
         }
 
         func saveResumePositionNow() {
@@ -498,6 +488,8 @@ struct PDFKitWrapper: NSViewRepresentable {
             let duration = 0.5
             let color = NSColor.systemOrange.withAlphaComponent(0.28).cgColor
             var bars: [CALayer] = []
+            sweepBars = []
+            sweepAnimationPage = page
             for proposal in proposals {
                 for rect in proposal.rects {
                     let viewRect = pdfView.convert(rect, from: page)
@@ -512,6 +504,7 @@ struct PDFKitWrapper: NSViewRepresentable {
                     bar.transform = CATransform3DMakeScale(0.0001, 1, 1)
                     overlay.layer?.addSublayer(bar)
                     bars.append(bar)
+                    sweepBars.append((bar, rect))
                 }
             }
 
@@ -562,6 +555,26 @@ struct PDFKitWrapper: NSViewRepresentable {
             sweepOverlay?.removeFromSuperview()
             sweepOverlay = nil
             finalizeSweepAction = nil
+            sweepBars = []
+            sweepAnimationPage = nil
+        }
+
+        /// Re-pins the running sweep's bars to their text as the user scrolls.
+        /// The overlay lives in the PDFView's non-scrolling space, so each bar's
+        /// position is recomputed from its page-space rect; the left-to-right
+        /// scale animation keeps running (only `position` is touched, with
+        /// implicit actions disabled so it snaps rather than lerps).
+        private func repositionSweepBars() {
+            guard let pdfView, let overlay = sweepOverlay,
+                  let page = sweepAnimationPage, !sweepBars.isEmpty else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for (bar, rect) in sweepBars {
+                let viewRect = pdfView.convert(rect, from: page)
+                let localRect = overlay.convert(viewRect, from: pdfView)
+                bar.position = CGPoint(x: localRect.minX, y: localRect.midY)
+            }
+            CATransaction.commit()
         }
 
         private func invalidateSweepDisplay() {
