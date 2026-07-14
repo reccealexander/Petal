@@ -162,7 +162,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         model.provideSurroundingText = { [weak coord] in coord?.currentPageText() }
         model.providePageText = { [weak coord] in coord?.currentPageText() }
         model.provideOpenHighlight = { [weak coord] in coord?.openHighlightForQuickAction() }
-        model.performSuggestKeyIdeas = { [weak coord] in coord?.suggestKeyIdeasForCurrentPage() }
+        model.performSuggestKeyIdeas = { [weak coord] in coord?.fetchOrRenderCurrentPage() }
         model.performAcceptKeyIdea = { [weak coord] id in coord?.acceptKeyIdea(id) }
         model.performAcceptAllKeyIdeas = { [weak coord] in coord?.acceptAllKeyIdeas() }
         model.performDismissKeyIdea = { [weak coord] id in coord?.dismissKeyIdea(id) }
@@ -212,7 +212,12 @@ struct PDFKitWrapper: NSViewRepresentable {
         weak var pdfView: AnnotatablePDFView?
         var tracked: [PDFAnnotation] = []
         var annotationToId: [PDFAnnotation: String] = [:]
+        private var proposalsByPage: [Int: [KeyIdeaProposal]] = [:]
         private var proposedAnnotations: [KeyIdeaProposal.ID: [PDFAnnotation]] = [:]
+        private var fetchedPages: Set<Int> = []
+        private var inFlightPages: Set<Int> = []
+        private var autoSuggestTask: Task<Void, Never>?
+        private var proposalGeneration = 0
         let keyIdeaService = KeyIdeaSuggestionService()
         var popover: NSPopover?
 
@@ -264,8 +269,16 @@ struct PDFKitWrapper: NSViewRepresentable {
             guard let pdfView, let document = pdfView.document,
                   let page = pdfView.currentPage
             else { return }
-            clearKeyIdeaProposals()
-            model.currentPageIndex = document.index(for: page)
+            let pageIndex = document.index(for: page)
+            guard pageIndex != NSNotFound else { return }
+            model.currentPageIndex = pageIndex
+            if model.isAIAssistModeActive {
+                renderProposals(forPage: pageIndex)
+                updateSuggestionLoadingState()
+                autoSuggestCurrentPageIfNeeded()
+            } else {
+                removeDrawnProposalAnnotations()
+            }
             resumeAutosave.schedule()
         }
 
@@ -406,23 +419,75 @@ struct PDFKitWrapper: NSViewRepresentable {
             rehydrate()
         }
 
-        func suggestKeyIdeasForCurrentPage() {
+        private func renderProposals(forPage pageIndex: Int) {
+            removeDrawnProposalAnnotations()
+            guard let document = pdfView?.document,
+                  let page = document.page(at: pageIndex)
+            else {
+                model.keyIdeaProposals = []
+                return
+            }
+
+            let proposals = proposalsByPage[pageIndex] ?? []
+            for proposal in proposals {
+                proposedAnnotations[proposal.id] = HighlightRenderer.addProposalAnnotations(
+                    rects: proposal.rects,
+                    on: page
+                )
+            }
+            model.keyIdeaProposals = proposals
+        }
+
+        private func removeDrawnProposalAnnotations() {
+            proposedAnnotations.values.forEach(HighlightRenderer.removeAnnotations)
+            proposedAnnotations.removeAll()
+            model.keyIdeaProposals.removeAll()
+        }
+
+        func autoSuggestCurrentPageIfNeeded() {
+            autoSuggestTask?.cancel()
+            autoSuggestTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled, let self,
+                      self.model.isAIAssistModeActive
+                else { return }
+                self.fetchOrRenderCurrentPage()
+            }
+        }
+
+        func fetchOrRenderCurrentPage() {
+            guard model.isAIAssistModeActive else { return }
             guard let pdfView, let document = pdfView.document,
                   let page = pdfView.currentPage, let text = page.string
             else { return }
             let pageIndex = document.index(for: page)
             guard pageIndex != NSNotFound else { return }
 
-            clearKeyIdeaProposals()
+            autoSuggestTask?.cancel()
+            autoSuggestTask = nil
+            if fetchedPages.contains(pageIndex) {
+                renderProposals(forPage: pageIndex)
+                return
+            }
+            guard !inFlightPages.contains(pageIndex) else { return }
+
+            inFlightPages.insert(pageIndex)
+            let generation = proposalGeneration
             model.isSuggestingKeyIdeas = true
             model.keyIdeaError = nil
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                defer { self.model.isSuggestingKeyIdeas = false }
+                defer {
+                    if self.proposalGeneration == generation {
+                        self.inFlightPages.remove(pageIndex)
+                        self.updateSuggestionLoadingState()
+                    }
+                }
                 do {
                     let sentences = try await self.keyIdeaService.suggestKeyIdeas(pageText: text)
-                    guard self.model.isAIAssistModeActive,
+                    guard self.proposalGeneration == generation,
+                          self.model.isAIAssistModeActive,
                           self.pdfView?.currentPage === page
                     else { return }
                     var proposals: [KeyIdeaProposal] = []
@@ -432,17 +497,33 @@ struct PDFKitWrapper: NSViewRepresentable {
                         let proposal = KeyIdeaProposal(
                             id: UUID(), sentence: sentence, pageIndex: pageIndex, rects: rects
                         )
-                        self.proposedAnnotations[proposal.id] =
-                            HighlightRenderer.addProposalAnnotations(rects: rects, on: page)
                         proposals.append(proposal)
                     }
-                    self.model.keyIdeaProposals = proposals
+                    self.proposalsByPage[pageIndex] = proposals
+                    self.fetchedPages.insert(pageIndex)
+                    self.renderProposals(forPage: pageIndex)
                 } catch GeminiClientError.missingAPIKey {
-                    self.model.keyIdeaError = "No Gemini key — add one in Settings"
+                    if self.proposalGeneration == generation,
+                       self.pdfView?.currentPage === page {
+                        self.model.keyIdeaError = "No Gemini key — add one in Settings"
+                    }
                 } catch {
-                    self.model.keyIdeaError = "Couldn’t suggest key ideas. Please try again."
+                    if self.proposalGeneration == generation,
+                       self.pdfView?.currentPage === page {
+                        self.model.keyIdeaError = "Couldn’t suggest key ideas. Please try again."
+                    }
                 }
             }
+        }
+
+        private func updateSuggestionLoadingState() {
+            guard let pdfView, let document = pdfView.document,
+                  let page = pdfView.currentPage
+            else {
+                model.isSuggestingKeyIdeas = false
+                return
+            }
+            model.isSuggestingKeyIdeas = inFlightPages.contains(document.index(for: page))
         }
 
         func acceptKeyIdea(_ id: UUID) {
@@ -458,6 +539,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         }
 
         func acceptAllKeyIdeas() {
+            guard let pageIndex = model.keyIdeaProposals.first?.pageIndex else { return }
             let rows = model.keyIdeaProposals.map { proposal in
                 Highlight(
                     paperId: paperId, page: proposal.pageIndex,
@@ -467,7 +549,8 @@ struct PDFKitWrapper: NSViewRepresentable {
             }
             guard !rows.isEmpty else { return }
             try? repository.insertHighlights(rows)
-            clearKeyIdeaProposals()
+            proposalsByPage[pageIndex] = []
+            renderProposals(forPage: pageIndex)
             rehydrate()
         }
 
@@ -476,13 +559,21 @@ struct PDFKitWrapper: NSViewRepresentable {
         private func removeProposal(_ id: UUID) {
             HighlightRenderer.removeAnnotations(proposedAnnotations[id] ?? [])
             proposedAnnotations[id] = nil
+            let pageIndex = model.currentPageIndex
+            proposalsByPage[pageIndex]?.removeAll { $0.id == id }
             model.keyIdeaProposals.removeAll { $0.id == id }
         }
 
         func clearKeyIdeaProposals() {
-            proposedAnnotations.values.forEach(HighlightRenderer.removeAnnotations)
-            proposedAnnotations.removeAll()
-            model.keyIdeaProposals.removeAll()
+            autoSuggestTask?.cancel()
+            autoSuggestTask = nil
+            proposalGeneration += 1
+            proposalsByPage.removeAll()
+            fetchedPages.removeAll()
+            inFlightPages.removeAll()
+            removeDrawnProposalAnnotations()
+            model.isSuggestingKeyIdeas = false
+            model.keyIdeaError = nil
         }
 
         /// Removes every tracked annotation and redraws all of this paper's

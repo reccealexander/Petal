@@ -169,7 +169,9 @@ struct PDFReaderView: View {
                 if let readerWindow { updateWindowAppearance(for: readerWindow) }
             }
             .onChange(of: model.isAIAssistModeActive) { _, isActive in
-                if !isActive {
+                if isActive {
+                    model.suggestKeyIdeas()
+                } else {
                     isKeyIdeaPopoverPresented = false
                     model.clearKeyIdeaProposals()
                 }
@@ -299,11 +301,10 @@ struct PDFReaderView: View {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
                             isKeyIdeaPopoverPresented = true
-                            model.suggestKeyIdeas()
                         } label: {
-                            Label("Suggest key ideas", systemImage: "text.badge.star")
+                            Label("Review key ideas", systemImage: "text.badge.star")
                         }
-                        .help("Suggest key ideas on the current page")
+                        .help("Review key ideas on this page")
                         .popover(isPresented: $isKeyIdeaPopoverPresented) {
                             KeyIdeaSuggestionPopover(model: model)
                         }
