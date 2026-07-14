@@ -609,10 +609,11 @@ enum SplashWindowController {
         }
 
         // Center the bloomed flower on the CENTER of where the main window will
-        // appear BEFORE launching any petals, so they shoot off symmetrically
-        // from that center. The flower is fixed in the (now-transparent) splash
-        // content, so gliding the splash window by the delta moves the flower
-        // there with no layer reflow or clipping; then run the petal landing.
+        // appear BEFORE launching petals, so they shoot off symmetrically from
+        // that center. This is a GPU-smooth Core Animation drift of the flower
+        // LAYERS (not a laggy window-frame animation): enlarge the transparent
+        // canvas so it contains both the current flower and the window center,
+        // then animate the flower + pistil `position` there over ~0.3s.
         let windowCenter = CGPoint(x: mainFrame.midX, y: mainFrame.midY)
         let delta = CGPoint(x: windowCenter.x - bloomFlowerCenterScreen.x,
                             y: windowCenter.y - bloomFlowerCenterScreen.y)
@@ -621,24 +622,89 @@ enum SplashWindowController {
             runPetalLanding(splash: splash, mainFrame: mainFrame)
             return
         }
-        // Animate the WINDOW FRAME (not setFrameOrigin, which the animator proxy
-        // applies instantly) so the flower visibly glides to the window center.
-        let recenterFrame = NSRect(
-            origin: NSPoint(x: splash.frame.origin.x + delta.x,
-                            y: splash.frame.origin.y + delta.y),
-            size: splash.frame.size
-        )
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.35
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            ctx.allowsImplicitAnimation = true
-            splash.animator().setFrame(recenterFrame, display: true)
-        } completionHandler: {
+        guard let contentView = splash.contentView,
+              bloomFlowerLayer != nil || bloomPistilLayer != nil else {
+            // Can't drift (no layers) — still launch the petals from the
+            // window center so the fill lands correctly.
+            bloomFlowerCenterScreen = windowCenter
+            runPetalLanding(splash: splash, mainFrame: mainFrame)
+            return
+        }
+
+        // Enlarge the splash canvas to comfortably contain BOTH the current
+        // flower and the window center, plus the flower's reach as margin, so
+        // the drifting flower never clips against the window bounds. Same
+        // instantaneous canvas-swap technique the bloom uses: resize with
+        // actions disabled and compensate positions so nothing visibly jumps.
+        let flowerReach: CGFloat = 160
+        let minX = min(bloomFlowerCenterScreen.x, windowCenter.x) - flowerReach
+        let maxX = max(bloomFlowerCenterScreen.x, windowCenter.x) + flowerReach
+        let minY = min(bloomFlowerCenterScreen.y, windowCenter.y) - flowerReach
+        let maxY = max(bloomFlowerCenterScreen.y, windowCenter.y) + flowerReach
+        let newFrame = NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        let oldOrigin = splash.frame.origin
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        splash.setFrame(newFrame, display: false)
+        // frameDelta keeps content screen-stationary: newOrigin + (p + frameDelta)
+        // == oldOrigin + p.
+        let frameDelta = CGPoint(x: oldOrigin.x - newFrame.origin.x,
+                                 y: oldOrigin.y - newFrame.origin.y)
+        // Subviews (the hidden title/button) shift via their frames…
+        for subview in contentView.subviews {
+            subview.setFrameOrigin(NSPoint(x: subview.frame.origin.x + frameDelta.x,
+                                           y: subview.frame.origin.y + frameDelta.y))
+        }
+        // …but the flower + pistil are SUBLAYERS of the content view's layer,
+        // not subviews, so the loop above misses them — shift their positions
+        // by the same delta so they stay put through the resize.
+        if let flower = bloomFlowerLayer {
+            flower.position = CGPoint(x: flower.position.x + frameDelta.x,
+                                      y: flower.position.y + frameDelta.y)
+        }
+        if let pistil = bloomPistilLayer {
+            pistil.position = CGPoint(x: pistil.position.x + frameDelta.x,
+                                      y: pistil.position.y + frameDelta.y)
+        }
+        CATransaction.commit()
+
+        // Smoothly drift the flower + pistil to the window center (content
+        // coords), then immediately launch the petals — no lingering hold.
+        let windowCenterContent = CGPoint(x: windowCenter.x - newFrame.minX,
+                                          y: windowCenter.y - newFrame.minY)
+        CATransaction.begin()
+        CATransaction.setCompletionBlock {
             MainActor.assumeIsolated {
                 bloomFlowerCenterScreen = windowCenter
                 runPetalLanding(splash: splash, mainFrame: mainFrame)
             }
         }
+        for layer in [bloomFlowerLayer, bloomPistilLayer].compactMap({ $0 }) {
+            driftLayer(layer, to: windowCenterContent, duration: 0.3)
+        }
+        CATransaction.commit()
+    }
+
+    /// Smoothly animates a layer's `position` to `target` over `duration`
+    /// (ease-in-out), setting the model value so it stays put after the
+    /// animation is removed. Uses `position.x`/`position.y` to avoid CGPoint
+    /// value-boxing ambiguity.
+    private static func driftLayer(_ layer: CALayer, to target: CGPoint, duration: CFTimeInterval) {
+        let from = layer.position
+        layer.position = target
+        let moveX = CABasicAnimation(keyPath: "position.x")
+        moveX.fromValue = from.x
+        moveX.toValue = target.x
+        let moveY = CABasicAnimation(keyPath: "position.y")
+        moveY.fromValue = from.y
+        moveY.toValue = target.y
+        let group = CAAnimationGroup()
+        group.animations = [moveX, moveY]
+        group.duration = duration
+        group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        group.isRemovedOnCompletion = true
+        layer.add(group, forKey: "recenterDrift")
     }
 
     /// Runs the petal-to-window landing once the flower sits on the main-window
