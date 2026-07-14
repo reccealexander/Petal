@@ -24,6 +24,30 @@ public final class TagRepository {
         }
     }
 
+    /// All paper→tags assignments in ONE query, grouped by `paper_id` (tags
+    /// ordered by name). Use this instead of calling `tags(forPaper:)` in a loop
+    /// over a large library — the per-paper version issues one transaction each,
+    /// which blocks the main thread for seconds on hundreds of papers.
+    public func tagsByPaper() throws -> [String: [Tag]] {
+        try dbQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT pt.paper_id AS paper_id, t.id AS id, t.name AS name
+                    FROM paper_tag pt
+                    JOIN tag t ON t.id = pt.tag_id
+                    ORDER BY t.name
+                    """
+            )
+            var map: [String: [Tag]] = [:]
+            for row in rows {
+                let paperId: String = row["paper_id"]
+                map[paperId, default: []].append(Tag(id: row["id"], name: row["name"]))
+            }
+            return map
+        }
+    }
+
     /// Tags assigned to a paper, ordered by name.
     public func tags(forPaper paperId: String) throws -> [Tag] {
         try dbQueue.read { db in

@@ -51,6 +51,26 @@ final class NotebookFixRegressionTests: XCTestCase {
         XCTAssertEqual(count, 0, "notebook chat_session rows leaked on delete")
     }
 
+    /// Perf regression: tagsByPaper() returns the full paper→tags grouping in a
+    /// single query (replacing an N+1 loop that blocked the main thread on large
+    /// libraries during launch).
+    func testTagsByPaperBatchesAllAssignments() throws {
+        let tags = TagRepository(database: manager)
+        let p1 = UUID().uuidString, p2 = UUID().uuidString
+        try manager.dbQueue.write { db in
+            try Paper(id: p1, filePath: "a.pdf").insert(db)
+            try Paper(id: p2, filePath: "b.pdf").insert(db)
+        }
+        _ = try tags.addTag(name: "ml", toPaper: p1)
+        _ = try tags.addTag(name: "ai", toPaper: p1)
+        _ = try tags.addTag(name: "nlp", toPaper: p2)
+
+        let map = try tags.tagsByPaper()
+        XCTAssertEqual(map[p1]?.map(\.name).sorted(), ["ai", "ml"])
+        XCTAssertEqual(map[p2]?.map(\.name), ["nlp"])
+        XCTAssertNil(map["nonexistent"])
+    }
+
     /// M2: a cyclic notebook graph (e.g. produced by concurrent sync re-parents)
     /// must not hang the recursive traversal CTE — UNION terminates it.
     func testTraversalTerminatesOnCyclicGraph() throws {

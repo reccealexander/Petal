@@ -147,11 +147,7 @@ final class LibraryViewModel: ObservableObject {
         if case .recentlyViewed = selection {
             let recent = (try? notebookRepo.recentlyViewedPapers(limit: 10)) ?? []
             papers = recent
-            var tagsMap: [String: [Tag]] = [:]
-            for paper in recent {
-                tagsMap[paper.id] = (try? tagRepo.tags(forPaper: paper.id)) ?? []
-            }
-            tagsByPaper = tagsMap
+            tagsByPaper = tagsMap(for: recent)
             reloadPapersWithNotes()
             return
         }
@@ -189,12 +185,19 @@ final class LibraryViewModel: ObservableObject {
         }
 
         papers = pinnedFirst(filtered)
-        var tagsMap: [String: [Tag]] = [:]
-        for paper in papers {
-            tagsMap[paper.id] = (try? tagRepo.tags(forPaper: paper.id)) ?? []
-        }
-        tagsByPaper = tagsMap
+        tagsByPaper = tagsMap(for: papers)
         reloadPapersWithNotes()
+    }
+
+    /// Builds the displayed papers' tag map from ONE batched query (not one
+    /// query per paper), scoped to the given papers.
+    private func tagsMap(for papers: [Paper]) -> [String: [Tag]] {
+        let all = (try? tagRepo.tagsByPaper()) ?? [:]
+        var map: [String: [Tag]] = [:]
+        for paper in papers {
+            map[paper.id] = all[paper.id] ?? []
+        }
+        return map
     }
 
     func setReadingStatus(paperId: String, status: ReadingStatus) {
