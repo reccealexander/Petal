@@ -82,7 +82,7 @@ enum BoundingBoxCodec {
 /// here — callers persist/lookup `Highlight` rows via `HighlightRepository` and
 /// use this type only to draw/erase the corresponding `PDFAnnotation`s.
 enum HighlightRenderer {
-    private static func keyInsightTagImage(size: CGSize) -> NSImage {
+    static func keyInsightTagImage(size: CGSize) -> NSImage {
         let scale: CGFloat = 4
         let pixelsWide = max(1, Int((size.width * scale).rounded()))
         let pixelsHigh = max(1, Int((size.height * scale).rounded()))

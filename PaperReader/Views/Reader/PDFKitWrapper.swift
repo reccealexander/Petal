@@ -242,6 +242,9 @@ struct PDFKitWrapper: NSViewRepresentable {
         /// its highlighted text during the reveal, with their page-space L-path
         /// points so they can be re-pinned to the text while scrolling.
         private var sweepConnectors: [(layer: CAShapeLayer, points: [CGPoint])] = []
+        /// Tag image layers shown during the reveal (masked open right-to-left),
+        /// with their page-space frame so they track the text while scrolling.
+        private var sweepTagLayers: [(layer: CALayer, rect: CGRect)] = []
         private var sweepAnimationPage: PDFPage?
         private var proposalGeneration = 0
         let keyIdeaService = KeyIdeaSuggestionService()
@@ -460,12 +463,14 @@ struct PDFKitWrapper: NSViewRepresentable {
             for proposal in proposals {
                 guard proposedAnnotations[proposal.id] == nil else { continue }
                 var annotations: [PDFAnnotation] = []
+                // When animating, both the orange bodies AND the tag are revealed
+                // by the overlay and added as real annotations on hand-off.
                 if !shouldAnimate {
                     annotations.append(contentsOf: HighlightRenderer.addProposalAnnotations(rects: proposal.rects, on: page))
-                }
-                for label in HighlightRenderer.addProposalLabel(near: proposal.rects, on: page) {
-                    annotations.append(label)
-                    proposalLabelToId[label] = proposal.id
+                    for label in HighlightRenderer.addProposalLabel(near: proposal.rects, on: page) {
+                        annotations.append(label)
+                        proposalLabelToId[label] = proposal.id
+                    }
                 }
                 proposedAnnotations[proposal.id] = annotations
             }
@@ -499,11 +504,13 @@ struct PDFKitWrapper: NSViewRepresentable {
             let lineColor = NSColor.systemRed.withAlphaComponent(0.75).cgColor
             sweepBars = []
             sweepConnectors = []
+            sweepTagLayers = []
             sweepAnimationPage = page
 
-            // One reveal "unit" per proposal (its bar layers + its connector),
-            // keyed by page-space vertical position so we can play them top-to-bottom.
-            struct RevealUnit { let sortY: CGFloat; var bars: [CALayer]; var connector: CAShapeLayer? }
+            // One reveal "unit" per proposal (its bar layers, connector line, and
+            // tag-reveal mask), keyed by page-space vertical position so we can
+            // play them top-to-bottom.
+            struct RevealUnit { let sortY: CGFloat; var bars: [CALayer]; var connector: CAShapeLayer?; var tagMask: CALayer? }
             var units: [RevealUnit] = []
 
             for proposal in proposals {
@@ -526,15 +533,17 @@ struct PDFKitWrapper: NSViewRepresentable {
                 }
 
                 var connector: CAShapeLayer?
+                var tagMask: CALayer?
                 if let tagFrame = HighlightRenderer.tagBounds(near: proposal.rects, on: page) {
-                    // L-path in page space: start AT the highlight edge, run left/right
-                    // to under the tag, then up to the tag (which sits upper-left).
                     let tagOnLeft = tagFrame.midX < topRect.midX
+                    // L-path in page space: start AT the highlight edge, run to under
+                    // the tag's near-vertical edge, then up to the tag's bottom.
+                    let tagEdgeX = tagOnLeft ? tagFrame.maxX : tagFrame.minX
                     let highlightPoint = tagOnLeft
                         ? CGPoint(x: topRect.minX, y: topRect.midY)
                         : CGPoint(x: topRect.maxX, y: topRect.midY)
-                    let cornerPoint = CGPoint(x: tagFrame.midX, y: topRect.midY)
-                    let tagPoint = CGPoint(x: tagFrame.midX, y: tagFrame.minY)
+                    let cornerPoint = CGPoint(x: tagEdgeX, y: topRect.midY)
+                    let tagPoint = CGPoint(x: tagEdgeX, y: tagFrame.minY)
                     let pagePoints = [highlightPoint, cornerPoint, tagPoint]
 
                     let line = CAShapeLayer()
@@ -549,10 +558,29 @@ struct PDFKitWrapper: NSViewRepresentable {
                     overlay.layer?.addSublayer(line)
                     connector = line
                     sweepConnectors.append((line, pagePoints))
+
+                    // Tag image, revealed right-to-left by a mask that grows from a
+                    // sliver on the right edge (where the L-line arrives).
+                    let tagViewRect = overlay.convert(pdfView.convert(tagFrame, from: page), from: pdfView)
+                    let tagLayer = CALayer()
+                    tagLayer.frame = tagViewRect
+                    tagLayer.contentsGravity = .resize
+                    tagLayer.contents = HighlightRenderer.keyInsightTagImage(size: tagFrame.size)
+                        .cgImage(forProposedRect: nil, context: nil, hints: nil)
+                    let mask = CALayer()
+                    mask.backgroundColor = NSColor.black.cgColor
+                    mask.anchorPoint = CGPoint(x: 1, y: 0.5)
+                    mask.bounds = CGRect(x: 0, y: 0, width: tagViewRect.width, height: tagViewRect.height)
+                    mask.position = CGPoint(x: tagViewRect.width, y: tagViewRect.height / 2)
+                    mask.transform = CATransform3DMakeScale(0.0001, 1, 1)
+                    tagLayer.mask = mask
+                    overlay.layer?.addSublayer(tagLayer)
+                    sweepTagLayers.append((tagLayer, tagFrame))
+                    tagMask = mask
                 }
 
                 if !barLayers.isEmpty || connector != nil {
-                    units.append(RevealUnit(sortY: topRect.maxY, bars: barLayers, connector: connector))
+                    units.append(RevealUnit(sortY: topRect.maxY, bars: barLayers, connector: connector, tagMask: tagMask))
                 }
             }
 
@@ -564,15 +592,24 @@ struct PDFKitWrapper: NSViewRepresentable {
             // Reveal from the top of the page downward (higher page-space y first).
             units.sort { $0.sortY > $1.sortY }
 
+            // Per-unit timeline: highlight sweeps in; the L-line draws on (slow);
+            // the tag reveals from where the line arrives; then the line retracts
+            // the way it came.
             let barDuration = 0.4
-            let connectorDuration = 0.35
-            let stagger = 0.3          // gap between consecutive highlights
-            let connectorLead = 0.18   // connector starts partway through its highlight
+            let connectorLead = 0.15
+            let lineDrawDuration = 0.6
+            let tagRevealDuration = 0.4
+            let lineEraseDuration = 0.5
+            let stagger = 0.4          // gap between consecutive highlights
+            let connectorTotal = lineDrawDuration + tagRevealDuration + lineEraseDuration
+            let easeOut = CAMediaTimingFunction(name: .easeOut)
+            let easeIn = CAMediaTimingFunction(name: .easeIn)
+            let linear = CAMediaTimingFunction(name: .linear)
             let base = CACurrentMediaTime()
 
             let generation = proposalGeneration
-            // One-shot hand-off: add the persistent plain highlights (which live
-            // on the page and scroll correctly) and remove the overlay.
+            // One-shot hand-off: add the persistent plain highlights + tags (which
+            // live on the page and scroll correctly) and remove the overlay.
             finalizeSweepAction = { [weak self] in
                 guard let self else { return }
                 self.finalizeSweepAction = nil
@@ -581,8 +618,12 @@ struct PDFKitWrapper: NSViewRepresentable {
                    let page = document.page(at: pageIndex) {
                     for proposal in (self.proposalsByPage[pageIndex] ?? []) {
                         guard self.proposedAnnotations[proposal.id] != nil else { continue }
-                        let bodies = HighlightRenderer.addProposalAnnotations(rects: proposal.rects, on: page)
-                        self.proposedAnnotations[proposal.id, default: []].append(contentsOf: bodies)
+                        var added = HighlightRenderer.addProposalAnnotations(rects: proposal.rects, on: page)
+                        for label in HighlightRenderer.addProposalLabel(near: proposal.rects, on: page) {
+                            added.append(label)
+                            self.proposalLabelToId[label] = proposal.id
+                        }
+                        self.proposedAnnotations[proposal.id, default: []].append(contentsOf: added)
                     }
                     self.invalidateSweepDisplay()
                 }
@@ -597,34 +638,51 @@ struct PDFKitWrapper: NSViewRepresentable {
                     animation.toValue = 1.0
                     animation.beginTime = unitStart
                     animation.duration = barDuration
-                    animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    animation.timingFunction = easeOut
                     animation.fillMode = .both
                     animation.isRemovedOnCompletion = false
                     bar.transform = CATransform3DMakeScale(1, 1, 1)
                     bar.add(animation, forKey: "sweep")
                 }
                 if let line = unit.connector {
-                    let draw = CABasicAnimation(keyPath: "strokeEnd")
-                    draw.fromValue = 0
-                    draw.toValue = 1
+                    // Draw on (from the highlight), hold while the tag reveals, then
+                    // retract the way it came (opposite direction).
+                    let draw = CAKeyframeAnimation(keyPath: "strokeEnd")
+                    draw.values = [0, 1, 1, 0]
+                    draw.keyTimes = [
+                        0,
+                        NSNumber(value: lineDrawDuration / connectorTotal),
+                        NSNumber(value: (lineDrawDuration + tagRevealDuration) / connectorTotal),
+                        1
+                    ]
+                    draw.timingFunctions = [easeOut, linear, easeIn]
                     draw.beginTime = unitStart + connectorLead
-                    draw.duration = connectorDuration
-                    draw.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    draw.duration = connectorTotal
                     draw.fillMode = .both
                     draw.isRemovedOnCompletion = false
-                    line.strokeEnd = 1
+                    line.strokeEnd = 0
                     line.add(draw, forKey: "draw")
+                }
+                if let mask = unit.tagMask {
+                    let reveal = CABasicAnimation(keyPath: "transform.scale.x")
+                    reveal.fromValue = 0.0001
+                    reveal.toValue = 1.0
+                    reveal.beginTime = unitStart + connectorLead + lineDrawDuration
+                    reveal.duration = tagRevealDuration
+                    reveal.timingFunction = easeOut
+                    reveal.fillMode = .both
+                    reveal.isRemovedOnCompletion = false
+                    mask.transform = CATransform3DMakeScale(1, 1, 1)
+                    mask.add(reveal, forKey: "reveal")
                 }
             }
             CATransaction.commit()
 
-            // Hand off to the persistent highlights once the whole staggered reveal
-            // has finished. Driven by an explicit delay (not the CATransaction
-            // completion, which can fire before delayed animations end) so the
-            // reveal is never cut short. Cancels implicitly if teardown nils the
-            // action (page change / mode-off / scroll never calls it).
-            let total = Double(max(0, units.count - 1)) * stagger
-                + max(barDuration, connectorLead + connectorDuration) + 0.05
+            // Hand off to the persistent annotations once the whole staggered reveal
+            // finishes. Driven by an explicit delay (not the CATransaction completion,
+            // which can fire before delayed animations end) so the reveal is never cut
+            // short. Cancels implicitly if teardown nils the action.
+            let total = Double(max(0, units.count - 1)) * stagger + connectorLead + connectorTotal + 0.05
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(total * 1_000_000_000))
                 self?.finalizeSweepAction?()
@@ -637,6 +695,7 @@ struct PDFKitWrapper: NSViewRepresentable {
             finalizeSweepAction = nil
             sweepBars = []
             sweepConnectors = []
+            sweepTagLayers = []
             sweepAnimationPage = nil
         }
 
@@ -647,7 +706,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         /// implicit actions disabled so it snaps rather than lerps).
         private func repositionSweepBars() {
             guard let pdfView, let overlay = sweepOverlay, let page = sweepAnimationPage,
-                  !sweepBars.isEmpty || !sweepConnectors.isEmpty else { return }
+                  !sweepBars.isEmpty || !sweepConnectors.isEmpty || !sweepTagLayers.isEmpty else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             for (bar, rect) in sweepBars {
@@ -657,6 +716,9 @@ struct PDFKitWrapper: NSViewRepresentable {
             }
             for (line, points) in sweepConnectors {
                 line.path = connectorPath(points, page: page, overlay: overlay, pdfView: pdfView)
+            }
+            for (tagLayer, rect) in sweepTagLayers {
+                tagLayer.frame = overlay.convert(pdfView.convert(rect, from: page), from: pdfView)
             }
             CATransaction.commit()
         }
