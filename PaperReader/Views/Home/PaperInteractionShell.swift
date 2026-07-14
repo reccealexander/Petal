@@ -11,6 +11,8 @@ struct PaperInteractionShell<Content: View>: View {
     let onRequestDelete: (Set<String>) -> Void
     @ViewBuilder var content: (Bool) -> Content
 
+    @State private var isCitationPresented = false
+
     private var idsToDelete: Set<String> {
         let isSelected = selection.isSelected(paper.id)
         return (isSelected && selection.selectedIDs.count > 1) ? selection.selectedIDs : [paper.id]
@@ -42,10 +44,16 @@ struct PaperInteractionShell<Content: View>: View {
                     }
                 }
                 PaperMoveMenu(library: library, paperIDs: idsToMove)
+                Button("Cite…") {
+                    isCitationPresented = true
+                }
                 Divider()
                 Button(idsToDelete.count > 1 ? "Delete \(idsToDelete.count) Papers…" : "Delete Paper…", role: .destructive) {
                     onRequestDelete(idsToDelete)
                 }
+            }
+            .popover(isPresented: $isCitationPresented, arrowEdge: .trailing) {
+                CitationView(paper: paper)
             }
     }
 }

@@ -27,6 +27,7 @@ struct PaperCardView: View {
     @State private var isEditingTags = false
     @State private var newTagText = ""
     @State private var isConfirmingDeleteNote = false
+    @State private var isCitationPresented = false
     @StateObject private var accent = AccentColorProvider()
     @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var appearance: AppearanceManager
@@ -147,6 +148,9 @@ struct PaperCardView: View {
             Button("Open Note") {
                 openNote()
             }
+            Button("Cite…") {
+                isCitationPresented = true
+            }
             Button("Delete Note…", role: .destructive) {
                 isConfirmingDeleteNote = true
             }
@@ -154,6 +158,9 @@ struct PaperCardView: View {
             Button(idsToDelete.count > 1 ? "Delete \(idsToDelete.count) Papers…" : "Delete Paper…", role: .destructive) {
                 onRequestDelete(idsToDelete)
             }
+        }
+        .popover(isPresented: $isCitationPresented, arrowEdge: .trailing) {
+            CitationView(paper: paper)
         }
         .alert("Delete this note?", isPresented: $isConfirmingDeleteNote) {
             Button("Cancel", role: .cancel) {}

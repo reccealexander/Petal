@@ -30,6 +30,7 @@ struct PDFReaderView: View {
     @StateObject private var bookmarkStore: PageBookmarkStore
     @State private var isTagPopoverPresented = false
     @State private var isKeyIdeaPopoverPresented = false
+    @State private var isCitationPresented = false
     @State private var readerWindow: NSWindow?
     @State private var savedWindowAppearance: WindowAppearance?
     @State private var readingStatus: ReadingStatus
@@ -180,7 +181,11 @@ struct PDFReaderView: View {
             .onExitCommand {
                 if focus.isActive { focus.exit() }
             }
-            .toolbar {
+            .toolbar { readerToolbar }
+    }
+
+    @ToolbarContentBuilder
+    private var readerToolbar: some ToolbarContent {
                 if isStandaloneWindow && !focus.isActive {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
@@ -329,7 +334,7 @@ struct PDFReaderView: View {
                 // Session 7 Part A, Feature 1: tag button with AI-recommended
                 // tag suggestions, mirroring the home-view card's tag editor
                 // but adding a separate "Suggested" section.
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
                     Button {
                         tagPopoverModel.load()
                         isTagPopoverPresented = true
@@ -340,10 +345,19 @@ struct PDFReaderView: View {
                     .popover(isPresented: $isTagPopoverPresented) {
                         ReaderTagPopoverView(model: tagPopoverModel)
                     }
+
+                    Button {
+                        isCitationPresented = true
+                    } label: {
+                        Label("Cite", systemImage: "quote.opening")
+                    }
+                    .help("Generate a formatted citation for this paper")
+                    .popover(isPresented: $isCitationPresented, arrowEdge: .bottom) {
+                        CitationView(paper: paper)
+                    }
                 }
                 }
             }
-    }
 
     /// A wider hit target around a one-pixel separator. Since the panel sits
     /// on the trailing edge, dragging right reduces its width.
