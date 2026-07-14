@@ -111,11 +111,7 @@ enum BoundingBoxCodec {
 /// here — callers persist/lookup `Highlight` rows via `HighlightRepository` and
 /// use this type only to draw/erase the corresponding `PDFAnnotation`s.
 enum HighlightRenderer {
-    private static func keyInsightTagImage(
-        size: CGSize,
-        pillWidth: CGFloat,
-        pillOnLeft: Bool
-    ) -> NSImage {
+    private static func keyInsightTagImage(size: CGSize) -> NSImage {
         let scale: CGFloat = 4
         let pixelsWide = max(1, Int((size.width * scale).rounded()))
         let pixelsHigh = max(1, Int((size.height * scale).rounded()))
@@ -129,20 +125,8 @@ enum HighlightRenderer {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
 
-        let full = CGRect(origin: .zero, size: size)
-        let pillRect = pillOnLeft
-            ? CGRect(x: 0, y: 0, width: pillWidth, height: size.height)
-            : CGRect(x: size.width - pillWidth, y: 0, width: pillWidth, height: size.height)
-
-        let lineThickness: CGFloat = 1.2
-        let lineY = full.midY - lineThickness / 2
-        let lineRect: CGRect = pillOnLeft
-            ? CGRect(x: pillRect.maxX, y: lineY, width: max(0, full.maxX - pillRect.maxX), height: lineThickness)
-            : CGRect(x: 0, y: lineY, width: max(0, pillRect.minX), height: lineThickness)
-        NSColor.systemRed.withAlphaComponent(0.7).setFill()
-        NSBezierPath(rect: lineRect).fill()
-
-        let pill = NSBezierPath(roundedRect: pillRect, xRadius: 2, yRadius: 2)
+        let rect = CGRect(origin: .zero, size: size)
+        let pill = NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2)
         NSColor.systemRed.withAlphaComponent(0.85).setFill()
         pill.fill()
 
@@ -150,22 +134,13 @@ enum HighlightRenderer {
         let font = NSFont(name: "Times New Roman", size: fontSize)
             ?? NSFont(name: "Times", size: fontSize)
             ?? NSFont.systemFont(ofSize: fontSize)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
-            .foregroundColor: NSColor.white,
-            .paragraphStyle: paragraph
+        let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font, .foregroundColor: NSColor.white, .paragraphStyle: paragraph
         ]
-        let string = NSAttributedString(string: "Key Insight", attributes: attributes)
-        let textSize = string.size()
-        let textRect = CGRect(
-            x: pillRect.minX,
-            y: pillRect.midY - textSize.height / 2,
-            width: pillRect.width,
-            height: textSize.height
-        )
-        string.draw(in: textRect)
+        let str = NSAttributedString(string: "Key Insight", attributes: attrs)
+        let ts = str.size()
+        str.draw(in: CGRect(x: 0, y: rect.midY - ts.height / 2, width: size.width, height: ts.height))
 
         NSGraphicsContext.restoreGraphicsState()
 
@@ -220,26 +195,17 @@ enum HighlightRenderer {
         guard let topRect = rects.max(by: { $0.maxY < $1.maxY }) else { return [] }
 
         let pageRect = page.bounds(for: .cropBox)
-        let pillWidth: CGFloat = 52
+        let width: CGFloat = 52
         let height: CGFloat = 13
         let inset: CGFloat = 4
-        let gap: CGFloat = 3
         let y = min(max(topRect.midY - height / 2, pageRect.minY + 1), pageRect.maxY - height - 1)
         let leftMargin = topRect.minX - pageRect.minX
-        let pillOnLeft: Bool
-        let bounds: CGRect
-        if leftMargin >= pillWidth + 2 * inset {
-            let pillLeft = pageRect.minX + inset
-            let textEdge = max(topRect.minX - gap, pillLeft + pillWidth)
-            bounds = CGRect(x: pillLeft, y: y, width: textEdge - pillLeft, height: height)
-            pillOnLeft = true
-        } else {
-            let pillRight = pageRect.maxX - inset
-            let textEdge = min(topRect.maxX + gap, pillRight - pillWidth)
-            bounds = CGRect(x: textEdge, y: y, width: pillRight - textEdge, height: height)
-            pillOnLeft = false
-        }
-        let image = keyInsightTagImage(size: bounds.size, pillWidth: pillWidth, pillOnLeft: pillOnLeft)
+        let x: CGFloat = leftMargin >= width + 2 * inset
+            ? pageRect.minX + inset
+            : pageRect.maxX - width - inset
+        let bounds = CGRect(x: x, y: y, width: width, height: height)
+
+        let image = keyInsightTagImage(size: bounds.size)
         let annotation = PDFImageStampAnnotation(image: image, bounds: bounds)
         annotation.isReadOnly = true
         page.addAnnotation(annotation)

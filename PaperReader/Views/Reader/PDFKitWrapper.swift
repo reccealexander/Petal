@@ -488,9 +488,12 @@ struct PDFKitWrapper: NSViewRepresentable {
 
         private func invalidateSweepDisplay(_ annotations: [SweepHighlightAnnotation]) {
             guard let pdfView, let documentView = pdfView.documentView else { return }
-            // PDFKit draws pages and annotations in its internal document view.
-            // Invalidating the wrapper does not force its page tiles to redraw.
-            documentView.setNeedsDisplay(documentView.visibleRect)
+            for annotation in annotations {
+                guard let page = annotation.page else { continue }
+                let viewRect = pdfView.convert(annotation.bounds, from: page)
+                let docRect = documentView.convert(viewRect, from: pdfView)
+                documentView.setNeedsDisplay(docRect.insetBy(dx: -1, dy: -1))
+            }
         }
 
         private func removeDrawnProposalAnnotations() {
