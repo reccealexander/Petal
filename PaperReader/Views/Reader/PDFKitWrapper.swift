@@ -436,7 +436,7 @@ struct PDFKitWrapper: NSViewRepresentable {
                     rects: proposal.rects,
                     on: page
                 )
-                if let label = HighlightRenderer.addProposalLabel(near: proposal.rects, on: page) {
+                for label in HighlightRenderer.addProposalLabel(near: proposal.rects, on: page) {
                     annotations.append(label)
                     proposalLabelToId[label] = proposal.id
                 }
@@ -487,11 +487,10 @@ struct PDFKitWrapper: NSViewRepresentable {
         }
 
         private func invalidateSweepDisplay(_ annotations: [SweepHighlightAnnotation]) {
-            guard let pdfView else { return }
-            for annotation in annotations {
-                guard let page = annotation.page else { continue }
-                pdfView.setNeedsDisplay(pdfView.convert(annotation.bounds, from: page))
-            }
+            guard let pdfView, let documentView = pdfView.documentView else { return }
+            // PDFKit draws pages and annotations in its internal document view.
+            // Invalidating the wrapper does not force its page tiles to redraw.
+            documentView.setNeedsDisplay(documentView.visibleRect)
         }
 
         private func removeDrawnProposalAnnotations() {
