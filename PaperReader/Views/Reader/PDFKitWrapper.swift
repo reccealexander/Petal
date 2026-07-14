@@ -223,7 +223,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         var annotationToId: [PDFAnnotation: String] = [:]
         private var proposalsByPage: [Int: [KeyIdeaProposal]] = [:]
         private var proposedAnnotations: [KeyIdeaProposal.ID: [PDFAnnotation]] = [:]
-        private var proposalLabelToId: [PDFAnnotation: KeyIdeaProposal.ID] = [:]
+        private var proposalBodyToId: [PDFAnnotation: KeyIdeaProposal.ID] = [:]
         private var fetchedPages: Set<Int> = []
         private var drawnPages: Set<Int> = []
         private var inFlightPages: Set<Int> = []
@@ -454,8 +454,8 @@ struct PDFKitWrapper: NSViewRepresentable {
             rehydrate()
         }
 
-        /// Draws a page's proposals (badges always; orange bodies now unless it will
-        /// animate) WITHOUT touching other pages' proposals. Idempotent per proposal.
+        /// Draws a page's orange proposal bodies unless they will animate, without
+        /// touching other pages' proposals. Idempotent per proposal.
         private func drawProposals(forPage pageIndex: Int, animated: Bool) {
             guard let document = pdfView?.document, let page = document.page(at: pageIndex) else { return }
             let proposals = proposalsByPage[pageIndex] ?? []
@@ -464,13 +464,13 @@ struct PDFKitWrapper: NSViewRepresentable {
             for proposal in proposals {
                 guard proposedAnnotations[proposal.id] == nil else { continue }
                 var annotations: [PDFAnnotation] = []
-                // When animating, both the orange bodies AND the tag are revealed
-                // by the overlay and added as real annotations on hand-off.
+                // When animating, the orange bodies and transient tag are revealed
+                // by the overlay; only the bodies become annotations at hand-off.
                 if !shouldAnimate {
-                    annotations.append(contentsOf: HighlightRenderer.addProposalAnnotations(rects: proposal.rects, on: page))
-                    for label in HighlightRenderer.addProposalLabel(near: proposal.rects, on: page) {
-                        annotations.append(label)
-                        proposalLabelToId[label] = proposal.id
+                    let bodies = HighlightRenderer.addProposalAnnotations(rects: proposal.rects, on: page)
+                    annotations.append(contentsOf: bodies)
+                    for body in bodies {
+                        proposalBodyToId[body] = proposal.id
                     }
                 }
                 proposedAnnotations[proposal.id] = annotations
@@ -600,17 +600,19 @@ struct PDFKitWrapper: NSViewRepresentable {
             let connectorLead = 0.15
             let lineDrawDuration = 0.6
             let tagRevealDuration = 0.4
+            let tagHoldDuration = 0.15
             let lineEraseDuration = 0.5
+            let tagVanishDuration = lineEraseDuration
             let stagger = 0.4          // gap between consecutive highlights
-            let connectorTotal = lineDrawDuration + tagRevealDuration + lineEraseDuration
+            let connectorTotal = lineDrawDuration + tagRevealDuration + tagHoldDuration + lineEraseDuration
             let easeOut = CAMediaTimingFunction(name: .easeOut)
             let easeIn = CAMediaTimingFunction(name: .easeIn)
             let linear = CAMediaTimingFunction(name: .linear)
             let base = CACurrentMediaTime()
 
             let generation = proposalGeneration
-            // One-shot hand-off: add the persistent plain highlights + tags (which
-            // live on the page and scroll correctly) and remove the overlay.
+            // One-shot hand-off: add the persistent plain highlights and remove the
+            // overlay. The tag exists only as a layer in the completed animation.
             finalizeSweepAction = { [weak self] in
                 guard let self else { return }
                 self.finalizeSweepAction = nil
@@ -619,10 +621,9 @@ struct PDFKitWrapper: NSViewRepresentable {
                    let page = document.page(at: pageIndex) {
                     for proposal in (self.proposalsByPage[pageIndex] ?? []) {
                         guard self.proposedAnnotations[proposal.id] != nil else { continue }
-                        var added = HighlightRenderer.addProposalAnnotations(rects: proposal.rects, on: page)
-                        for label in HighlightRenderer.addProposalLabel(near: proposal.rects, on: page) {
-                            added.append(label)
-                            self.proposalLabelToId[label] = proposal.id
+                        let added = HighlightRenderer.addProposalAnnotations(rects: proposal.rects, on: page)
+                        for body in added {
+                            self.proposalBodyToId[body] = proposal.id
                         }
                         self.proposedAnnotations[proposal.id, default: []].append(contentsOf: added)
                     }
@@ -653,7 +654,7 @@ struct PDFKitWrapper: NSViewRepresentable {
                     draw.keyTimes = [
                         0,
                         NSNumber(value: lineDrawDuration / connectorTotal),
-                        NSNumber(value: (lineDrawDuration + tagRevealDuration) / connectorTotal),
+                        NSNumber(value: (lineDrawDuration + tagRevealDuration + tagHoldDuration) / connectorTotal),
                         1
                     ]
                     draw.timingFunctions = [easeOut, linear, easeIn]
@@ -665,15 +666,21 @@ struct PDFKitWrapper: NSViewRepresentable {
                     line.add(draw, forKey: "draw")
                 }
                 if let mask = unit.tagMask {
-                    let reveal = CABasicAnimation(keyPath: "transform.scale.x")
-                    reveal.fromValue = 0.0001
-                    reveal.toValue = 1.0
+                    let tagTotal = tagRevealDuration + tagHoldDuration + tagVanishDuration
+                    let reveal = CAKeyframeAnimation(keyPath: "transform.scale.x")
+                    reveal.values = [0, 1, 1, 0]
+                    reveal.keyTimes = [
+                        0,
+                        NSNumber(value: tagRevealDuration / tagTotal),
+                        NSNumber(value: (tagRevealDuration + tagHoldDuration) / tagTotal),
+                        1
+                    ]
+                    reveal.timingFunctions = [easeOut, linear, easeIn]
                     reveal.beginTime = unitStart + connectorLead + lineDrawDuration
-                    reveal.duration = tagRevealDuration
-                    reveal.timingFunction = easeOut
+                    reveal.duration = tagTotal
                     reveal.fillMode = .both
                     reveal.isRemovedOnCompletion = false
-                    mask.transform = CATransform3DMakeScale(1, 1, 1)
+                    mask.transform = CATransform3DMakeScale(0, 1, 1)
                     mask.add(reveal, forKey: "reveal")
                 }
             }
@@ -751,19 +758,15 @@ struct PDFKitWrapper: NSViewRepresentable {
             removeSweepOverlay()
             proposedAnnotations.values.forEach(HighlightRenderer.removeAnnotations)
             proposedAnnotations.removeAll()
-            proposalLabelToId.removeAll()
+            proposalBodyToId.removeAll()
             drawnPages.removeAll()
             model.keyIdeaProposals.removeAll()
-            // Detaching annotations doesn't repaint PDFKit on its own, and custom
-            // (image-stamp) tag annotations in particular can linger after a single
-            // setNeedsDisplay. Force a full re-render now and again next runloop so
-            // the tags/highlights actually disappear (e.g. after turning AI Notes off).
+            // Detaching annotations doesn't always repaint PDFKit on its own. Force
+            // a full re-render now and again next runloop so highlights disappear.
             forceProposalRepaint()
         }
 
-        /// Reliably clears removed proposal annotations from the display. A single
-        /// `setNeedsDisplay` sometimes leaves custom stamp annotations painted, so
-        /// re-lay-out the document view and invalidate again on the next runloop.
+        /// Reliably clears removed proposal annotations from the display.
         private func forceProposalRepaint() {
             invalidateSweepDisplay()
             pdfView?.layoutDocumentView()
@@ -865,7 +868,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         }
 
         func acceptKeyIdea(_ id: UUID) {
-            guard let proposal = model.keyIdeaProposals.first(where: { $0.id == id }) else { return }
+            guard let proposal = proposalsByPage.values.flatMap({ $0 }).first(where: { $0.id == id }) else { return }
             let row = Highlight(
                 paperId: paperId, page: proposal.pageIndex,
                 boundingBoxes: BoundingBoxCodec.encode(proposal.rects),
@@ -897,7 +900,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         private func removeProposal(_ id: UUID) {
             HighlightRenderer.removeAnnotations(proposedAnnotations[id] ?? [])
             proposedAnnotations[id] = nil
-            proposalLabelToId = proposalLabelToId.filter { $0.value != id }
+            proposalBodyToId = proposalBodyToId.filter { $0.value != id }
             for (pageIndex, list) in proposalsByPage where list.contains(where: { $0.id == id }) {
                 proposalsByPage[pageIndex]?.removeAll { $0.id == id }
             }
@@ -954,7 +957,7 @@ struct PDFKitWrapper: NSViewRepresentable {
         }
 
         func handleAnnotationClick(_ annotation: PDFAnnotation, page: PDFPage) -> Bool {
-            if let proposalId = proposalLabelToId[annotation] {
+            if let proposalId = proposalBodyToId[annotation] {
                 acceptKeyIdea(proposalId)
                 return true
             }

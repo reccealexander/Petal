@@ -611,7 +611,7 @@ private struct KeyIdeaSuggestionPopover: View {
                 )
             } else {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Click a “Key Insight” label on the page to accept.")
+                    Text("Click a highlight to accept it.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     ScrollView {

@@ -3,26 +3,6 @@ import AppKit
 import PDFKit
 import PaperReaderCore
 
-final class PDFImageStampAnnotation: PDFAnnotation {
-    private let stampImage: NSImage
-
-    init(image: NSImage, bounds: CGRect) {
-        self.stampImage = image
-        super.init(bounds: bounds, forType: .stamp, withProperties: nil)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(with box: PDFDisplayBox, in context: CGContext) {
-        guard let cg = stampImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
-        context.saveGState()
-        context.draw(cg, in: bounds)
-        context.restoreGState()
-    }
-}
-
 /// Pure PDFKit rendering for highlights: turning a `PDFSelection` into per-page
 /// spans, turning a stored `Highlight` into `PDFAnnotation`s on a page, and back.
 /// This file owns no persistence — `HighlightRepository` is the source of truth
@@ -157,9 +137,8 @@ enum HighlightRenderer {
         }
     }
 
-    /// The page-space frame of the "Key Insight" tag for a proposal (left outer
-    /// margin, or right when the left is too narrow). Shared by the tag annotation
-    /// and the connector line so they stay in sync.
+    /// The page-space frame of the transient "Key Insight" tag for a proposal
+    /// (left outer margin, or right when the left is too narrow).
     static func tagBounds(near rects: [CGRect], on page: PDFPage) -> CGRect? {
         guard let topRect = rects.max(by: { $0.maxY < $1.maxY }) else { return nil }
         let pageRect = page.bounds(for: .cropBox)
@@ -177,17 +156,6 @@ enum HighlightRenderer {
             ? pageRect.minX + inset
             : pageRect.maxX - width - inset
         return CGRect(x: x, y: y, width: width, height: height)
-    }
-
-    /// Adds a clickable callout in the margin beside the top-most pending marker.
-    static func addProposalLabel(near rects: [CGRect], on page: PDFPage) -> [PDFAnnotation] {
-        guard let bounds = tagBounds(near: rects, on: page) else { return [] }
-
-        let image = keyInsightTagImage(size: bounds.size)
-        let annotation = PDFImageStampAnnotation(image: image, bounds: bounds)
-        annotation.isReadOnly = true
-        page.addAnnotation(annotation)
-        return [annotation]
     }
 
     /// Splits a `PDFSelection` into per-page spans, handling selections that
@@ -256,8 +224,6 @@ enum HighlightRenderer {
     /// Detaches the given annotations from their pages.
     static func removeAnnotations(_ annotations: [PDFAnnotation]) {
         for annotation in annotations {
-            // Mark hidden before detaching: custom (image-stamp) annotations can
-            // otherwise linger in PDFKit's cached page rendering after removal.
             annotation.shouldDisplay = false
             annotation.page?.removeAnnotation(annotation)
         }
