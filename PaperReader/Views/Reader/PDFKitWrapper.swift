@@ -233,6 +233,9 @@ struct PDFKitWrapper: NSViewRepresentable {
         /// PDFView's non-scrolling space, so scrolling mid-animation would
         /// otherwise slide the bars out of line with the text).
         private var finalizeSweepAction: (() -> Void)?
+        /// Last observed scroll (clip-view) origin, used to tell a real scroll
+        /// apart from a layout-only bounds change when finalizing the sweep.
+        private var lastScrollOrigin: CGPoint?
         private var proposalGeneration = 0
         let keyIdeaService = KeyIdeaSuggestionService()
         var popover: NSPopover?
@@ -303,10 +306,20 @@ struct PDFKitWrapper: NSViewRepresentable {
         @objc func scrollChanged(_ note: Notification) {
             resumeAutosave.schedule()
             // The sweep overlay lives in the PDFView's non-scrolling space, so a
-            // scroll mid-animation would misalign the bars with the text. Finish
-            // the hand-off now: the persistent highlights are page annotations
-            // that scroll correctly.
-            finalizeSweepAction?()
+            // real scroll mid-animation would misalign the bars with the text.
+            // Finish the hand-off in that case (the persistent highlights are page
+            // annotations that scroll correctly). But `boundsDidChange` also fires
+            // on layout/size changes — e.g. when we add the overlay/annotations —
+            // which must NOT cancel the animation, so only act on a genuine scroll
+            // (the clip view's origin actually moved).
+            guard let clip = note.object as? NSClipView else { return }
+            let origin = clip.bounds.origin
+            let previous = lastScrollOrigin
+            lastScrollOrigin = origin
+            if let previous,
+               abs(previous.x - origin.x) > 0.5 || abs(previous.y - origin.y) > 0.5 {
+                finalizeSweepAction?()
+            }
         }
 
         func saveResumePositionNow() {
