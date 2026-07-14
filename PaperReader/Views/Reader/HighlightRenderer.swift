@@ -3,6 +3,26 @@ import AppKit
 import PDFKit
 import PaperReaderCore
 
+final class PDFImageStampAnnotation: PDFAnnotation {
+    private let stampImage: NSImage
+
+    init(image: NSImage, bounds: CGRect) {
+        self.stampImage = image
+        super.init(bounds: bounds, forType: .stamp, withProperties: nil)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(with box: PDFDisplayBox, in context: CGContext) {
+        guard let cg = stampImage.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+        context.saveGState()
+        context.draw(cg, in: bounds)
+        context.restoreGState()
+    }
+}
+
 /// Pure PDFKit rendering for highlights: turning a `PDFSelection` into per-page
 /// spans, turning a stored `Highlight` into `PDFAnnotation`s on a page, and back.
 /// This file owns no persistence — `HighlightRepository` is the source of truth
@@ -62,6 +82,36 @@ enum BoundingBoxCodec {
 /// here — callers persist/lookup `Highlight` rows via `HighlightRepository` and
 /// use this type only to draw/erase the corresponding `PDFAnnotation`s.
 enum HighlightRenderer {
+    private static func keyInsightBadgeImage(size: CGSize) -> NSImage {
+        NSImage(size: size, flipped: false) { rect in
+            let path = NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2)
+            NSColor.systemRed.setFill()
+            path.fill()
+
+            let fontSize = rect.height * 0.62
+            let font = NSFont(name: "Times New Roman", size: fontSize)
+                ?? NSFont(name: "Times", size: fontSize)
+                ?? NSFont.systemFont(ofSize: fontSize)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: NSColor.white,
+                .paragraphStyle: paragraph
+            ]
+            let string = NSAttributedString(string: "Key Insight", attributes: attributes)
+            let textSize = string.size()
+            let textRect = CGRect(
+                x: 0,
+                y: (rect.height - textSize.height) / 2,
+                width: rect.width,
+                height: textSize.height
+            )
+            string.draw(in: textRect)
+            return true
+        }
+    }
+
     static func locate(sentence: String, on page: PDFPage) -> [CGRect] {
         guard let pageText = page.string, !sentence.isEmpty else { return [] }
 
@@ -119,14 +169,9 @@ enum HighlightRenderer {
         let proposedY = topRect.midY - height / 2
         let y = min(max(proposedY, pageRect.minY + 1), pageRect.maxY - height - 1)
         let bounds = CGRect(x: x, y: y, width: width, height: height)
-        let annotation = PDFAnnotation(bounds: bounds, forType: .freeText, withProperties: nil)
-        annotation.contents = "Key Insight"
-        annotation.font = NSFont.boldSystemFont(ofSize: 8)
-        annotation.fontColor = .white
-        annotation.color = .systemRed
-        annotation.alignment = .center
+        let image = keyInsightBadgeImage(size: bounds.size)
+        let annotation = PDFImageStampAnnotation(image: image, bounds: bounds)
         annotation.isReadOnly = true
-        annotation.border = nil
         page.addAnnotation(annotation)
         return annotation
     }
